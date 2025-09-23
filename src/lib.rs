@@ -410,6 +410,7 @@ pub use error::*;
 pub use http;
 pub use proxy::{ProxyConfig, ProxyEndpoint};
 pub use web_context::WebContext;
+pub use event::{InputEvent, MouseButton, KeyModifiers};
 
 #[cfg(target_os = "ios")]
 pub type InputAccessoryViewBuilder =
@@ -709,7 +710,7 @@ pub struct WebViewAttributes<'a> {
     Option<Box<dyn Fn(String, NewWindowFeatures) -> NewWindowResponse + Send + Sync>>,
 
   /// TODO: document
-  pub input_event_handler: Option<Box<dyn Fn(event::WindowEvent) -> InputEventResponse>>,
+  pub input_event_handler: Option<Box<dyn Fn(event::InputEvent) -> InputEventResponse>>,
 
   /// Enables clipboard access for the page rendered on **Linux** and **Windows**.
   ///
@@ -1325,7 +1326,7 @@ impl<'a> WebViewBuilder<'a> {
   /// TODO: document
   pub fn with_input_event_handler(
     mut self,
-    callback: impl Fn(event::WindowEvent) -> InputEventResponse + 'static,
+    callback: impl Fn(event::InputEvent) -> InputEventResponse + 'static,
   ) -> Self {
     self.attrs.input_event_handler = Some(Box::new(callback));
     self

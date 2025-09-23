@@ -11,7 +11,7 @@ use objc2::{define_class, rc::Retained, runtime::Bool, DeclaredClass};
 use objc2_app_kit::{NSDraggingDestination, NSEvent};
 use objc2_foundation::{NSObjectProtocol, NSUUID};
 
-use crate::{event::WindowEvent, InputEventResponse};
+use crate::{event::InputEvent, InputEventResponse};
 
 #[cfg(target_os = "ios")]
 use crate::wkwebview::ios::WKWebView::WKWebView;
@@ -34,7 +34,7 @@ pub struct WryWebViewIvars {
   #[cfg(target_os = "ios")]
   pub(crate) input_accessory_view_builder: Option<Box<crate::InputAccessoryViewBuilder>>,
   #[cfg(target_os = "macos")]
-  pub(crate) input_event_handler: Option<Box<dyn Fn(WindowEvent) -> InputEventResponse>>,
+  pub(crate) input_event_handler: Option<Box<dyn Fn(InputEvent) -> InputEventResponse>>,
   pub(crate) custom_protocol_task_ids: Mutex<HashMap<usize, Retained<NSUUID>>>,
 }
 
@@ -196,7 +196,7 @@ where
   F: FnOnce(),
 {
   if let Some(handler) = &webview.ivars().input_event_handler {
-    if let Some(window_event) = WindowEvent::from_ns_event(event) {
+    if let Some(window_event) = InputEvent::from_ns_event(event) {
       match handler(window_event) {
         InputEventResponse::Propagate => default_handler(),
         InputEventResponse::Block => {

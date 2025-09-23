@@ -6,7 +6,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use gtk::gdk::{EventButton, EventKey, EventMotion, EventScroll, ModifierType};
 
 #[derive(Debug, Clone)]
-pub enum WindowEvent {
+pub enum InputEvent {
   KeyDown {
     key_code: u16,
     characters: Option<String>,
@@ -54,7 +54,7 @@ pub enum MouseButton {
   Other(i16),
 }
 
-impl WindowEvent {
+impl InputEvent {
   #[cfg(target_os = "macos")]
   pub fn from_ns_event(event: &NSEvent) -> Option<Self> {
     use objc2_app_kit::{NSEventModifierFlags, NSEventType};
@@ -75,7 +75,7 @@ impl WindowEvent {
         let characters = unsafe { event.characters() }
           .map(|chars| chars.to_string());
 
-        Some(WindowEvent::KeyDown {
+        Some(InputEvent::KeyDown {
           key_code,
           characters,
           modifiers,
@@ -86,7 +86,7 @@ impl WindowEvent {
         let characters = unsafe { event.characters() }
           .map(|chars| chars.to_string());
 
-        Some(WindowEvent::KeyUp {
+        Some(InputEvent::KeyUp {
           key_code,
           characters,
           modifiers,
@@ -94,7 +94,7 @@ impl WindowEvent {
       }
       NSEventType::LeftMouseDown => {
         let location_in_window = unsafe { event.locationInWindow() };
-        Some(WindowEvent::MouseDown {
+        Some(InputEvent::MouseDown {
           button: MouseButton::Left,
           location: (location_in_window.x, location_in_window.y),
           modifiers,
@@ -102,7 +102,7 @@ impl WindowEvent {
       }
       NSEventType::LeftMouseUp => {
         let location_in_window = unsafe { event.locationInWindow() };
-        Some(WindowEvent::MouseUp {
+        Some(InputEvent::MouseUp {
           button: MouseButton::Left,
           location: (location_in_window.x, location_in_window.y),
           modifiers,
@@ -110,7 +110,7 @@ impl WindowEvent {
       }
       NSEventType::RightMouseDown => {
         let location_in_window = unsafe { event.locationInWindow() };
-        Some(WindowEvent::MouseDown {
+        Some(InputEvent::MouseDown {
           button: MouseButton::Right,
           location: (location_in_window.x, location_in_window.y),
           modifiers,
@@ -118,7 +118,7 @@ impl WindowEvent {
       }
       NSEventType::RightMouseUp => {
         let location_in_window = unsafe { event.locationInWindow() };
-        Some(WindowEvent::MouseUp {
+        Some(InputEvent::MouseUp {
           button: MouseButton::Right,
           location: (location_in_window.x, location_in_window.y),
           modifiers,
@@ -127,7 +127,7 @@ impl WindowEvent {
       NSEventType::OtherMouseDown => {
         let location_in_window = unsafe { event.locationInWindow() };
         let button_number = unsafe { event.buttonNumber() } as i16;
-        Some(WindowEvent::MouseDown {
+        Some(InputEvent::MouseDown {
           button: MouseButton::Other(button_number),
           location: (location_in_window.x, location_in_window.y),
           modifiers,
@@ -136,7 +136,7 @@ impl WindowEvent {
       NSEventType::OtherMouseUp => {
         let location_in_window = unsafe { event.locationInWindow() };
         let button_number = unsafe { event.buttonNumber() } as i16;
-        Some(WindowEvent::MouseUp {
+        Some(InputEvent::MouseUp {
           button: MouseButton::Other(button_number),
           location: (location_in_window.x, location_in_window.y),
           modifiers,
@@ -144,7 +144,7 @@ impl WindowEvent {
       }
       NSEventType::MouseMoved | NSEventType::LeftMouseDragged | NSEventType::RightMouseDragged | NSEventType::OtherMouseDragged => {
         let location_in_window = unsafe { event.locationInWindow() };
-        Some(WindowEvent::MouseMoved {
+        Some(InputEvent::MouseMoved {
           location: (location_in_window.x, location_in_window.y),
           modifiers,
         })
@@ -153,7 +153,7 @@ impl WindowEvent {
         let location_in_window = unsafe { event.locationInWindow() };
         let delta_x = unsafe { event.scrollingDeltaX() };
         let delta_y = unsafe { event.scrollingDeltaY() };
-        Some(WindowEvent::ScrollWheel {
+        Some(InputEvent::ScrollWheel {
           delta_x,
           delta_y,
           location: (location_in_window.x, location_in_window.y),
@@ -178,7 +178,7 @@ impl WindowEvent {
     match msg {
       WM_KEYDOWN | WM_SYSKEYDOWN => {
         let key_code = wparam as u16;
-        Some(WindowEvent::KeyDown {
+        Some(InputEvent::KeyDown {
           key_code,
           characters: None, // Windows WM_KEYDOWN doesn't provide character info
           modifiers,
@@ -186,7 +186,7 @@ impl WindowEvent {
       }
       WM_KEYUP | WM_SYSKEYUP => {
         let key_code = wparam as u16;
-        Some(WindowEvent::KeyUp {
+        Some(InputEvent::KeyUp {
           key_code,
           characters: None,
           modifiers,
@@ -195,7 +195,7 @@ impl WindowEvent {
       WM_LBUTTONDOWN => {
         let x = (lparam & 0xFFFF) as i16 as f64;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
-        Some(WindowEvent::MouseDown {
+        Some(InputEvent::MouseDown {
           button: MouseButton::Left,
           location: (x, y),
           modifiers,
@@ -204,7 +204,7 @@ impl WindowEvent {
       WM_LBUTTONUP => {
         let x = (lparam & 0xFFFF) as i16 as f64;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
-        Some(WindowEvent::MouseUp {
+        Some(InputEvent::MouseUp {
           button: MouseButton::Left,
           location: (x, y),
           modifiers,
@@ -213,7 +213,7 @@ impl WindowEvent {
       WM_RBUTTONDOWN => {
         let x = (lparam & 0xFFFF) as i16 as f64;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
-        Some(WindowEvent::MouseDown {
+        Some(InputEvent::MouseDown {
           button: MouseButton::Right,
           location: (x, y),
           modifiers,
@@ -222,7 +222,7 @@ impl WindowEvent {
       WM_RBUTTONUP => {
         let x = (lparam & 0xFFFF) as i16 as f64;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
-        Some(WindowEvent::MouseUp {
+        Some(InputEvent::MouseUp {
           button: MouseButton::Right,
           location: (x, y),
           modifiers,
@@ -231,7 +231,7 @@ impl WindowEvent {
       WM_MBUTTONDOWN => {
         let x = (lparam & 0xFFFF) as i16 as f64;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
-        Some(WindowEvent::MouseDown {
+        Some(InputEvent::MouseDown {
           button: MouseButton::Other(2), // Middle button
           location: (x, y),
           modifiers,
@@ -240,7 +240,7 @@ impl WindowEvent {
       WM_MBUTTONUP => {
         let x = (lparam & 0xFFFF) as i16 as f64;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
-        Some(WindowEvent::MouseUp {
+        Some(InputEvent::MouseUp {
           button: MouseButton::Other(2),
           location: (x, y),
           modifiers,
@@ -249,7 +249,7 @@ impl WindowEvent {
       WM_MOUSEMOVE => {
         let x = (lparam & 0xFFFF) as i16 as f64;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
-        Some(WindowEvent::MouseMoved {
+        Some(InputEvent::MouseMoved {
           location: (x, y),
           modifiers,
         })
@@ -258,7 +258,7 @@ impl WindowEvent {
         let x = (lparam & 0xFFFF) as i16 as f64;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
         let delta = ((wparam >> 16) & 0xFFFF) as i16 as f64 / 120.0; // WHEEL_DELTA is 120
-        Some(WindowEvent::ScrollWheel {
+        Some(InputEvent::ScrollWheel {
           delta_x: 0.0,
           delta_y: delta,
           location: (x, y),
@@ -269,7 +269,7 @@ impl WindowEvent {
         let x = (lparam & 0xFFFF) as i16 as f64;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
         let delta = ((wparam >> 16) & 0xFFFF) as i16 as f64 / 120.0;
-        Some(WindowEvent::ScrollWheel {
+        Some(InputEvent::ScrollWheel {
           delta_x: delta,
           delta_y: 0.0,
           location: (x, y),
@@ -293,12 +293,12 @@ impl WindowEvent {
     };
 
     match event.event_type() {
-      gtk::gdk::EventType::KeyPress => Some(WindowEvent::KeyDown {
+      gtk::gdk::EventType::KeyPress => Some(InputEvent::KeyDown {
         key_code: keyval as u16,
         characters: event.string().map(|s| s.to_string()),
         modifiers: key_modifiers,
       }),
-      gtk::gdk::EventType::KeyRelease => Some(WindowEvent::KeyUp {
+      gtk::gdk::EventType::KeyRelease => Some(InputEvent::KeyUp {
         key_code: keyval as u16,
         characters: event.string().map(|s| s.to_string()),
         modifiers: key_modifiers,
@@ -327,12 +327,12 @@ impl WindowEvent {
     };
 
     match event.event_type() {
-      gtk::gdk::EventType::ButtonPress => Some(WindowEvent::MouseDown {
+      gtk::gdk::EventType::ButtonPress => Some(InputEvent::MouseDown {
         button,
         location: (x, y),
         modifiers: key_modifiers,
       }),
-      gtk::gdk::EventType::ButtonRelease => Some(WindowEvent::MouseUp {
+      gtk::gdk::EventType::ButtonRelease => Some(InputEvent::MouseUp {
         button,
         location: (x, y),
         modifiers: key_modifiers,
@@ -353,7 +353,7 @@ impl WindowEvent {
       command: modifiers.contains(ModifierType::SUPER_MASK),
     };
 
-    Some(WindowEvent::MouseMoved {
+    Some(InputEvent::MouseMoved {
       location: (x, y),
       modifiers: key_modifiers,
     })
@@ -372,7 +372,7 @@ impl WindowEvent {
       command: modifiers.contains(ModifierType::SUPER_MASK),
     };
 
-    Some(WindowEvent::ScrollWheel {
+    Some(InputEvent::ScrollWheel {
       delta_x,
       delta_y,
       location: (x, y),

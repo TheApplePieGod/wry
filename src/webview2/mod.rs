@@ -27,15 +27,15 @@ use windows::{
     Foundation::*,
     Globalization::*,
     Graphics::Gdi::*,
-    System::{Com::*, LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
-    UI::{Input::KeyboardAndMouse::SetFocus, Shell::*, WindowsAndMessaging::*},
+    System::{Com::*, LibraryLoader::GetModuleHandleW},
+    UI::{Input::KeyboardAndMouse::{GetFocus, SetFocus}, Shell::*, WindowsAndMessaging::*},
   },
 };
 
 use self::drag_drop::DragDropController;
 use super::Theme;
 use crate::{
-  event::WindowEvent, proxy::ProxyConfig, Error, InputEventResponse, MemoryUsageLevel,
+  event::InputEvent, proxy::ProxyConfig, Error, InputEventResponse, MemoryUsageLevel,
   NewWindowFeatures, NewWindowOpener, NewWindowResponse, PageLoadEvent, Rect,
   RequestAsyncResponder, Result, WebViewAttributes, RGBA,
 };
@@ -49,7 +49,7 @@ static EXEC_MSG_ID: Lazy<u32> = Lazy::new(|| unsafe { RegisterWindowMessageA(s!(
 
 // Simple approach: store handler per thread using thread_local
 thread_local! {
-  static THREAD_HOOK_HANDLERS: RefCell<HashMap<isize, Box<dyn Fn(WindowEvent) -> InputEventResponse>>> = RefCell::new(HashMap::new());
+  static THREAD_HOOK_HANDLERS: RefCell<HashMap<isize, Box<dyn Fn(InputEvent) -> InputEventResponse>>> = RefCell::new(HashMap::new());
 }
 
 impl From<webview2_com::Error> for Error {
@@ -76,17 +76,16 @@ pub(crate) struct InnerWebView {
   // the webview gets dropped, otherwise we'll have a memory leak
   #[allow(dead_code)]
   drag_drop_controller: Option<DragDropController>,
-  message_hook: Option<HHOOK>,
+  keyboard_hook: Option<HHOOK>,
+  mouse_hook: Option<HHOOK>,
 }
 
 impl Drop for InnerWebView {
   fn drop(&mut self) {
     let _ = unsafe { self.controller.Close() };
     if self.is_child {
-      // Clean up message hook if it exists
-      if let Some(hook) = self.message_hook {
-        unsafe { Self::uninstall_message_hook(self.hwnd, hook) };
-      }
+      // Clean up input hooks if they exist
+      unsafe { Self::uninstall_input_hooks(self.hwnd, self.keyboard_hook, self.mouse_hook) };
       let _ = unsafe { DestroyWindow(self.hwnd) };
     } else {
       unsafe { Self::dettach_parent_subclass(*self.parent.borrow()) }
@@ -186,12 +185,15 @@ impl InnerWebView {
       webview,
       env,
       drag_drop_controller,
-      message_hook: None,
+      keyboard_hook: None,
+      mouse_hook: None,
     };
 
-    // Install message hook for child windows with input event handlers
+    // Install input hooks for child windows with input event handlers
     if is_child && input_event_handler.is_some() {
-      w.message_hook = unsafe { Self::install_message_hook(hwnd, input_event_handler.unwrap()) };
+      let (keyboard_hook, mouse_hook) = unsafe { Self::install_input_hooks(hwnd, input_event_handler.unwrap()) };
+      w.keyboard_hook = keyboard_hook;
+      w.mouse_hook = mouse_hook;
     }
 
     if is_child {
@@ -1317,72 +1319,71 @@ impl InnerWebView {
   }
 
   #[inline]
-  unsafe fn install_message_hook(
+  unsafe fn install_input_hooks(
     hwnd: HWND,
-    input_event_handler: Box<dyn Fn(WindowEvent) -> InputEventResponse>,
-  ) -> Option<HHOOK> {
+    input_event_handler: Box<dyn Fn(InputEvent) -> InputEventResponse>,
+  ) -> (Option<HHOOK>, Option<HHOOK>) {
     THREAD_HOOK_HANDLERS.with(|handlers| {
       handlers
         .borrow_mut()
         .insert(hwnd.0 as isize, input_event_handler);
     });
 
-    println!("Installing hook for hwnd: {:?}", hwnd);
+    let module_handle = GetModuleHandleW(PCWSTR::null()).map(Into::into).ok();
 
-    let thread_id = unsafe { GetCurrentThreadId() };
+    let keyboard_hook = SetWindowsHookExW(
+      WH_KEYBOARD_LL,
+      Some(Self::low_level_keyboard_proc),
+      module_handle,
+      0, // System-wide hook
+    ).ok();
 
-    let hook = match SetWindowsHookExW(
-      WH_GETMESSAGE,
-      Some(Self::get_message_hook_proc),
-      None,
-      thread_id,
-    ) {
-      Ok(hook) => {
-        println!("Hook installed successfully: {:?}", hook);
-        Some(hook)
-      }
-      Err(err) => {
-        println!("Failed to create hook: {:?}", err);
-        None
-      }
-    }?;
+    let mouse_hook = SetWindowsHookExW(
+      WH_MOUSE_LL,
+      Some(Self::low_level_mouse_proc),
+      module_handle,
+      0, // System-wide hook
+    ).ok();
 
-    Some(hook)
+    (keyboard_hook, mouse_hook)
   }
 
-  unsafe extern "system" fn get_message_hook_proc(
+  unsafe extern "system" fn low_level_keyboard_proc(
     ncode: i32,
     wparam: WPARAM,
     lparam: LPARAM,
   ) -> LRESULT {
     // Only process HC_ACTION
     if ncode == HC_ACTION as i32 {
-      let msg = &*(lparam.0 as *const MSG);
+      let kb_struct = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
 
-      // Check if we have handlers registered in thread-local storage
+      let foreground_hwnd = GetForegroundWindow();
+      let focus_hwnd = GetFocus();
+
       let mut should_block = false;
       THREAD_HOOK_HANDLERS.with(|handlers| {
         if let Ok(handlers_map) = handlers.try_borrow() {
           for (hwnd_raw, handler) in handlers_map.iter() {
             let target_hwnd = HWND(*hwnd_raw as *mut _);
 
-            // Check if this message is for our WebView window or its children
-            if msg.hwnd == target_hwnd || IsChild(target_hwnd, msg.hwnd).as_bool() {
-              if let Some(window_event) = crate::event::WindowEvent::from_windows_message(
-                msg.message,
-                msg.wParam.0,
-                msg.lParam.0 as isize,
+            // Only process keyboard events if our webview has focus
+            // Check if focus is specifically on our webview or within our webview hierarchy
+            let webview_has_focus = focus_hwnd == target_hwnd
+              || IsChild(target_hwnd, focus_hwnd).as_bool()
+              || (foreground_hwnd == target_hwnd && focus_hwnd.0 == std::ptr::null_mut()); // fallback when GetFocus returns null but foreground is our window
+
+            if webview_has_focus {
+              if let Some(window_event) = InputEvent::from_windows_message(
+                wparam.0 as u32,
+                kb_struct.vkCode as usize,
+                0,
               ) {
-                println!("Processing message: {} for hwnd: {:?}", msg.message, msg.hwnd);
                 match handler(window_event) {
                   crate::InputEventResponse::Block => {
-                    println!("Blocking message: {}", msg.message);
                     should_block = true;
-                    return; // Early return from closure
+                    return;
                   }
-                  crate::InputEventResponse::Propagate => {
-                    println!("Propagating message: {}", msg.message);
-                  }
+                  crate::InputEventResponse::Propagate => {}
                 }
               }
             }
@@ -1391,10 +1392,55 @@ impl InnerWebView {
       });
 
       if should_block {
-        // For WH_GETMESSAGE, we can't actually block the message
-        // but we can mark it as processed by setting wParam to PM_REMOVE
-        // However, the message has already been retrieved, so we'll return 0
-        return LRESULT(0);
+        return LRESULT(1);
+      }
+    }
+
+    CallNextHookEx(None, ncode, wparam, lparam)
+  }
+
+  unsafe extern "system" fn low_level_mouse_proc(
+    ncode: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+  ) -> LRESULT {
+    if ncode == HC_ACTION as i32 {
+      let mouse_struct = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+
+      let point = POINT { x: mouse_struct.pt.x, y: mouse_struct.pt.y };
+      let hwnd_under_cursor = WindowFromPoint(point);
+
+      let mut should_block = false;
+      THREAD_HOOK_HANDLERS.with(|handlers| {
+        if let Ok(handlers_map) = handlers.try_borrow() {
+          for (hwnd_raw, handler) in handlers_map.iter() {
+            let target_hwnd = HWND(*hwnd_raw as *mut _);
+
+            // Check if the cursor is over our webview or its child
+            if hwnd_under_cursor == target_hwnd || IsChild(target_hwnd, hwnd_under_cursor).as_bool() {
+              let mut relative_point = POINT { x: mouse_struct.pt.x, y: mouse_struct.pt.y };
+              let _ = ScreenToClient(target_hwnd, &mut relative_point);
+
+              if let Some(window_event) = InputEvent::from_windows_message(
+                wparam.0 as u32,
+                0,
+                ((relative_point.y as isize) << 16) | (relative_point.x as isize & 0xFFFF),
+              ) {
+                match handler(window_event) {
+                  crate::InputEventResponse::Block => {
+                    should_block = true;
+                    return;
+                  }
+                  crate::InputEventResponse::Propagate => { }
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if should_block {
+        return LRESULT(1);
       }
     }
 
@@ -1402,18 +1448,21 @@ impl InnerWebView {
   }
 
   #[inline]
-  unsafe fn uninstall_message_hook(hwnd: HWND, hook: HHOOK) {
-    println!("Uninstalling hook for hwnd: {:?}", hwnd);
-
-    // Remove the handler from thread-local storage
+  unsafe fn uninstall_input_hooks(hwnd: HWND, keyboard_hook: Option<HHOOK>, mouse_hook: Option<HHOOK>) {
     THREAD_HOOK_HANDLERS.with(|handlers| {
       handlers.borrow_mut().remove(&(hwnd.0 as isize));
     });
 
-    // Uninstall the hook
-    if hook.0 != std::ptr::null_mut() {
-      let _ = UnhookWindowsHookEx(hook);
-      println!("Hook uninstalled");
+    if let Some(hook) = keyboard_hook {
+      if hook.0 != std::ptr::null_mut() {
+        let _ = UnhookWindowsHookEx(hook);
+      }
+    }
+
+    if let Some(hook) = mouse_hook {
+      if hook.0 != std::ptr::null_mut() {
+        let _ = UnhookWindowsHookEx(hook);
+      }
     }
   }
 
@@ -1483,7 +1532,7 @@ impl InnerWebView {
 
 /// Public APIs
 impl InnerWebView {
-  pub fn id(&self) -> crate::WebViewId {
+  pub fn id<'a>(&'a self) -> crate::WebViewId<'a> {
     &self.id
   }
 
