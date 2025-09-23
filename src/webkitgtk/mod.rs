@@ -52,7 +52,7 @@ use x11_dl::xlib::*;
 pub use web_context::WebContextImpl;
 
 use crate::{
-  proxy::ProxyConfig, web_context::WebContext, Error, NewWindowFeatures, NewWindowOpener,
+  event::WindowEvent, proxy::ProxyConfig, web_context::WebContext, Error, InputEventResponse, NewWindowFeatures, NewWindowOpener,
   NewWindowResponse, PageLoadEvent, Rect, Result, WebViewAttributes, RGBA,
 };
 
@@ -88,6 +88,7 @@ pub(crate) struct InnerWebView {
   is_inspector_open: Arc<AtomicBool>,
   pending_scripts: Arc<Mutex<Option<Vec<String>>>>,
   is_in_fixed_parent: bool,
+  input_event_handler: Option<Box<dyn Fn(WindowEvent) -> InputEventResponse>>,
 
   #[cfg(feature = "x11")]
   x11: Option<X11Data>,
@@ -300,8 +301,11 @@ impl InnerWebView {
     // Webview Settings
     Self::set_webview_settings(&webview, &attributes);
 
+    // Store input event handler before it gets taken by attach_handlers
+    let input_event_handler = attributes.input_event_handler.clone();
+
     // Webview handlers
-    Self::attach_handlers(&webview, web_context, &mut attributes);
+    Self::attach_handlers(&webview, web_context, &mut attributes, input_event_handler);
 
     // IPC handler
     Self::attach_ipc_handler(webview.clone(), &mut attributes);
@@ -324,12 +328,15 @@ impl InnerWebView {
       .unwrap_or_else(|| (webview.as_ptr() as isize).to_string());
     unsafe { webview.set_data(WEBVIEW_ID, id.clone()) };
 
+    let input_event_handler = attributes.input_event_handler.take();
+
     let w = Self {
       id,
       webview,
       pending_scripts: Arc::new(Mutex::new(Some(Vec::new()))),
 
       is_in_fixed_parent,
+      input_event_handler,
       #[cfg(feature = "x11")]
       x11: None,
 
@@ -380,6 +387,97 @@ impl InnerWebView {
     }
 
     Ok(w)
+  }
+
+  fn setup_input_event_handlers(
+    webview: &WebView,
+    handler: Box<dyn Fn(WindowEvent) -> InputEventResponse>,
+  ) {
+    // Enable event masks for key and mouse events
+    webview.add_events(
+      gtk::gdk::EventMask::KEY_PRESS_MASK
+        | gtk::gdk::EventMask::KEY_RELEASE_MASK
+        | gtk::gdk::EventMask::BUTTON_PRESS_MASK
+        | gtk::gdk::EventMask::BUTTON_RELEASE_MASK
+        | gtk::gdk::EventMask::POINTER_MOTION_MASK
+        | gtk::gdk::EventMask::SCROLL_MASK,
+    );
+
+    // Key event handlers
+    let handler_key = handler.clone();
+    webview.connect_key_press_event(move |_, event| {
+      if let Some(window_event) = WindowEvent::from_gdk_event_key(event) {
+        match handler_key(window_event) {
+          InputEventResponse::Block => gtk::glib::Propagation::Stop,
+          InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
+        }
+      } else {
+        gtk::glib::Propagation::Proceed
+      }
+    });
+
+    let handler_key = handler.clone();
+    webview.connect_key_release_event(move |_, event| {
+      if let Some(window_event) = WindowEvent::from_gdk_event_key(event) {
+        match handler_key(window_event) {
+          InputEventResponse::Block => gtk::glib::Propagation::Stop,
+          InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
+        }
+      } else {
+        gtk::glib::Propagation::Proceed
+      }
+    });
+
+    // Mouse button event handlers
+    let handler_button = handler.clone();
+    webview.connect_button_press_event(move |_, event| {
+      if let Some(window_event) = WindowEvent::from_gdk_event_button(event) {
+        match handler_button(window_event) {
+          InputEventResponse::Block => gtk::glib::Propagation::Stop,
+          InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
+        }
+      } else {
+        gtk::glib::Propagation::Proceed
+      }
+    });
+
+    let handler_button = handler.clone();
+    webview.connect_button_release_event(move |_, event| {
+      if let Some(window_event) = WindowEvent::from_gdk_event_button(event) {
+        match handler_button(window_event) {
+          InputEventResponse::Block => gtk::glib::Propagation::Stop,
+          InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
+        }
+      } else {
+        gtk::glib::Propagation::Proceed
+      }
+    });
+
+    // Mouse motion event handler
+    let handler_motion = handler.clone();
+    webview.connect_motion_notify_event(move |_, event| {
+      if let Some(window_event) = WindowEvent::from_gdk_event_motion(event) {
+        match handler_motion(window_event) {
+          InputEventResponse::Block => gtk::glib::Propagation::Stop,
+          InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
+        }
+      } else {
+        gtk::glib::Propagation::Proceed
+      }
+    });
+
+    // Scroll event handler
+    let handler_scroll = handler;
+    webview.connect_scroll_event(move |_, event| {
+      if let Some(window_event) = WindowEvent::from_gdk_event_scroll(event) {
+        match handler_scroll(window_event) {
+          InputEventResponse::Block => gtk::glib::Propagation::Stop,
+          InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
+        }
+      } else {
+        gtk::glib::Propagation::Proceed
+      }
+    });
   }
 
   fn create_webview(
@@ -452,12 +550,18 @@ impl InnerWebView {
     webview: &WebView,
     web_context: &mut WebContext,
     attributes: &mut WebViewAttributes,
+    input_event_handler: Option<Box<dyn Fn(WindowEvent) -> InputEventResponse>>,
   ) {
     // window.close()
     webview.connect_close(move |webview| unsafe { webview.destroy() });
 
     // Synthetic mouse events
     synthetic_mouse_events::setup(webview);
+
+    // Input event handling
+    if let Some(handler) = input_event_handler {
+      Self::setup_input_event_handlers(webview, handler);
+    }
 
     // Document title changed handler
     if let Some(document_title_changed_handler) = attributes.document_title_changed_handler.take() {

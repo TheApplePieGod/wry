@@ -348,6 +348,7 @@
 // extern crate objc;
 
 mod error;
+mod event;
 mod proxy;
 #[cfg(any(target_os = "macos", target_os = "android", target_os = "ios"))]
 mod util;
@@ -482,6 +483,12 @@ pub enum NewWindowResponse {
   },
   /// Deny the window from being opened.
   Deny,
+}
+
+/// TODO: document
+pub enum InputEventResponse {
+  Propagate,
+  Block,
 }
 
 /// Information about the webview that initiated a new window request.
@@ -701,6 +708,9 @@ pub struct WebViewAttributes<'a> {
   pub new_window_req_handler:
     Option<Box<dyn Fn(String, NewWindowFeatures) -> NewWindowResponse + Send + Sync>>,
 
+  /// TODO: document
+  pub input_event_handler: Option<Box<dyn Fn(event::WindowEvent) -> InputEventResponse>>,
+
   /// Enables clipboard access for the page rendered on **Linux** and **Windows**.
   ///
   /// macOS doesn't provide such method and is always enabled by default. But your app will still need to add menu
@@ -814,6 +824,7 @@ impl Default for WebViewAttributes<'_> {
       download_started_handler: Some(Box::new(|_, _| true)),
       download_completed_handler: None,
       new_window_req_handler: None,
+      input_event_handler: None,
       clipboard: false,
       #[cfg(debug_assertions)]
       devtools: true,
@@ -1308,6 +1319,15 @@ impl<'a> WebViewBuilder<'a> {
     callback: impl Fn(String, NewWindowFeatures) -> NewWindowResponse + Send + Sync + 'static,
   ) -> Self {
     self.attrs.new_window_req_handler = Some(Box::new(callback));
+    self
+  }
+
+  /// TODO: document
+  pub fn with_input_event_handler(
+    mut self,
+    callback: impl Fn(event::WindowEvent) -> InputEventResponse + 'static,
+  ) -> Self {
+    self.attrs.input_event_handler = Some(Box::new(callback));
     self
   }
 

@@ -6,7 +6,13 @@ mod drag_drop;
 mod util;
 
 use std::{
-  borrow::Cow, cell::RefCell, collections::HashSet, fmt::Write, fs, path::PathBuf, rc::Rc,
+  borrow::Cow,
+  cell::RefCell,
+  collections::{HashMap, HashSet},
+  fmt::Write,
+  fs,
+  path::PathBuf,
+  rc::Rc,
   sync::mpsc,
 };
 
@@ -21,7 +27,7 @@ use windows::{
     Foundation::*,
     Globalization::*,
     Graphics::Gdi::*,
-    System::{Com::*, LibraryLoader::GetModuleHandleW},
+    System::{Com::*, LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
     UI::{Input::KeyboardAndMouse::SetFocus, Shell::*, WindowsAndMessaging::*},
   },
 };
@@ -29,8 +35,9 @@ use windows::{
 use self::drag_drop::DragDropController;
 use super::Theme;
 use crate::{
-  proxy::ProxyConfig, Error, MemoryUsageLevel, NewWindowFeatures, NewWindowOpener,
-  NewWindowResponse, PageLoadEvent, Rect, RequestAsyncResponder, Result, WebViewAttributes, RGBA,
+  event::WindowEvent, proxy::ProxyConfig, Error, InputEventResponse, MemoryUsageLevel,
+  NewWindowFeatures, NewWindowOpener, NewWindowResponse, PageLoadEvent, Rect,
+  RequestAsyncResponder, Result, WebViewAttributes, RGBA,
 };
 
 type EventRegistrationToken = i64;
@@ -39,6 +46,11 @@ const PARENT_SUBCLASS_ID: u32 = WM_USER + 0x64;
 const PARENT_DESTROY_MESSAGE: u32 = WM_USER + 0x65;
 const MAIN_THREAD_DISPATCHER_SUBCLASS_ID: u32 = WM_USER + 0x66;
 static EXEC_MSG_ID: Lazy<u32> = Lazy::new(|| unsafe { RegisterWindowMessageA(s!("Wry::ExecMsg")) });
+
+// Simple approach: store handler per thread using thread_local
+thread_local! {
+  static THREAD_HOOK_HANDLERS: RefCell<HashMap<isize, Box<dyn Fn(WindowEvent) -> InputEventResponse>>> = RefCell::new(HashMap::new());
+}
 
 impl From<webview2_com::Error> for Error {
   fn from(err: webview2_com::Error) -> Self {
@@ -64,15 +76,21 @@ pub(crate) struct InnerWebView {
   // the webview gets dropped, otherwise we'll have a memory leak
   #[allow(dead_code)]
   drag_drop_controller: Option<DragDropController>,
+  message_hook: Option<HHOOK>,
 }
 
 impl Drop for InnerWebView {
   fn drop(&mut self) {
     let _ = unsafe { self.controller.Close() };
     if self.is_child {
+      // Clean up message hook if it exists
+      if let Some(hook) = self.message_hook {
+        unsafe { Self::uninstall_message_hook(self.hwnd, hook) };
+      }
       let _ = unsafe { DestroyWindow(self.hwnd) };
+    } else {
+      unsafe { Self::dettach_parent_subclass(*self.parent.borrow()) }
     }
-    unsafe { Self::dettach_parent_subclass(*self.parent.borrow()) }
   }
 }
 
@@ -135,6 +153,9 @@ impl InnerWebView {
       Self::create_environment(&attributes, pl_attrs.clone())?
     };
     let controller = Self::create_controller(hwnd, &env, attributes.incognito, background_color)?;
+
+    let input_event_handler = attributes.input_event_handler.take();
+
     let webview = Self::init_webview(
       parent,
       hwnd,
@@ -156,7 +177,7 @@ impl InnerWebView {
       DragDropController::new(hwnd, handler)
     });
 
-    let w = Self {
+    let mut w = Self {
       id,
       parent: RefCell::new(parent),
       hwnd,
@@ -165,7 +186,13 @@ impl InnerWebView {
       webview,
       env,
       drag_drop_controller,
+      message_hook: None,
     };
+
+    // Install message hook for child windows with input event handlers
+    if is_child && input_event_handler.is_some() {
+      w.message_hook = unsafe { Self::install_message_hook(hwnd, input_event_handler.unwrap()) };
+    }
 
     if is_child {
       w.set_bounds(bounds.unwrap_or_default())?;
@@ -299,6 +326,10 @@ impl InnerWebView {
 
       if attributes.autoplay {
         arguments.push_str(" --autoplay-policy=no-user-gesture-required");
+      }
+
+      if attributes.input_event_handler.is_some() {
+        arguments.push_str(" --enable-features=msWebView2BrowserHitTransparent");
       }
 
       if let Some(proxy_setting) = &attributes.proxy_config {
@@ -1283,6 +1314,107 @@ impl InnerWebView {
       Some(Self::parent_subclass_proc),
       PARENT_SUBCLASS_ID as _,
     );
+  }
+
+  #[inline]
+  unsafe fn install_message_hook(
+    hwnd: HWND,
+    input_event_handler: Box<dyn Fn(WindowEvent) -> InputEventResponse>,
+  ) -> Option<HHOOK> {
+    THREAD_HOOK_HANDLERS.with(|handlers| {
+      handlers
+        .borrow_mut()
+        .insert(hwnd.0 as isize, input_event_handler);
+    });
+
+    println!("Installing hook for hwnd: {:?}", hwnd);
+
+    let thread_id = unsafe { GetCurrentThreadId() };
+
+    let hook = match SetWindowsHookExW(
+      WH_GETMESSAGE,
+      Some(Self::get_message_hook_proc),
+      None,
+      thread_id,
+    ) {
+      Ok(hook) => {
+        println!("Hook installed successfully: {:?}", hook);
+        Some(hook)
+      }
+      Err(err) => {
+        println!("Failed to create hook: {:?}", err);
+        None
+      }
+    }?;
+
+    Some(hook)
+  }
+
+  unsafe extern "system" fn get_message_hook_proc(
+    ncode: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+  ) -> LRESULT {
+    // Only process HC_ACTION
+    if ncode == HC_ACTION as i32 {
+      let msg = &*(lparam.0 as *const MSG);
+
+      // Check if we have handlers registered in thread-local storage
+      let mut should_block = false;
+      THREAD_HOOK_HANDLERS.with(|handlers| {
+        if let Ok(handlers_map) = handlers.try_borrow() {
+          for (hwnd_raw, handler) in handlers_map.iter() {
+            let target_hwnd = HWND(*hwnd_raw as *mut _);
+
+            // Check if this message is for our WebView window or its children
+            if msg.hwnd == target_hwnd || IsChild(target_hwnd, msg.hwnd).as_bool() {
+              if let Some(window_event) = crate::event::WindowEvent::from_windows_message(
+                msg.message,
+                msg.wParam.0,
+                msg.lParam.0 as isize,
+              ) {
+                println!("Processing message: {} for hwnd: {:?}", msg.message, msg.hwnd);
+                match handler(window_event) {
+                  crate::InputEventResponse::Block => {
+                    println!("Blocking message: {}", msg.message);
+                    should_block = true;
+                    return; // Early return from closure
+                  }
+                  crate::InputEventResponse::Propagate => {
+                    println!("Propagating message: {}", msg.message);
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if should_block {
+        // For WH_GETMESSAGE, we can't actually block the message
+        // but we can mark it as processed by setting wParam to PM_REMOVE
+        // However, the message has already been retrieved, so we'll return 0
+        return LRESULT(0);
+      }
+    }
+
+    CallNextHookEx(None, ncode, wparam, lparam)
+  }
+
+  #[inline]
+  unsafe fn uninstall_message_hook(hwnd: HWND, hook: HHOOK) {
+    println!("Uninstalling hook for hwnd: {:?}", hwnd);
+
+    // Remove the handler from thread-local storage
+    THREAD_HOOK_HANDLERS.with(|handlers| {
+      handlers.borrow_mut().remove(&(hwnd.0 as isize));
+    });
+
+    // Uninstall the hook
+    if hook.0 != std::ptr::null_mut() {
+      let _ = UnhookWindowsHookEx(hook);
+      println!("Hook uninstalled");
+    }
   }
 
   #[inline]

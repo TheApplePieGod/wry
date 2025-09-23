@@ -11,6 +11,8 @@ use objc2::{define_class, rc::Retained, runtime::Bool, DeclaredClass};
 use objc2_app_kit::{NSDraggingDestination, NSEvent};
 use objc2_foundation::{NSObjectProtocol, NSUUID};
 
+use crate::{event::WindowEvent, InputEventResponse};
+
 #[cfg(target_os = "ios")]
 use crate::wkwebview::ios::WKWebView::WKWebView;
 #[cfg(target_os = "macos")]
@@ -31,6 +33,8 @@ pub struct WryWebViewIvars {
   pub(crate) accept_first_mouse: objc2::runtime::Bool,
   #[cfg(target_os = "ios")]
   pub(crate) input_accessory_view_builder: Option<Box<crate::InputAccessoryViewBuilder>>,
+  #[cfg(target_os = "macos")]
+  pub(crate) input_event_handler: Option<Box<dyn Fn(WindowEvent) -> InputEventResponse>>,
   pub(crate) custom_protocol_task_ids: Mutex<HashMap<usize, Retained<NSUUID>>>,
 }
 
@@ -107,20 +111,105 @@ define_class!(
     }
   }
 
+  // Input event handling
+  #[cfg(target_os = "macos")]
+  impl WryWebView {
+    #[unsafe(method(keyDown:))]
+    fn key_down(&self, event: &NSEvent) {
+      handle_input_event(self, event, || {
+        unsafe { objc2::msg_send![super(self), keyDown: event] }
+      });
+    }
+
+    #[unsafe(method(keyUp:))]
+    fn key_up(&self, event: &NSEvent) {
+      handle_input_event(self, event, || {
+        unsafe { objc2::msg_send![super(self), keyUp: event] }
+      });
+    }
+
+    #[unsafe(method(mouseDown:))]
+    fn mouse_down(&self, event: &NSEvent) {
+      handle_input_event(self, event, || {
+        unsafe { objc2::msg_send![super(self), mouseDown: event] }
+      });
+    }
+
+    #[unsafe(method(mouseUp:))]
+    fn mouse_up(&self, event: &NSEvent) {
+      handle_input_event(self, event, || {
+        unsafe { objc2::msg_send![super(self), mouseUp: event] }
+      });
+    }
+
+    #[unsafe(method(rightMouseDown:))]
+    fn right_mouse_down(&self, event: &NSEvent) {
+      handle_input_event(self, event, || {
+        unsafe { objc2::msg_send![super(self), rightMouseDown: event] }
+      });
+    }
+
+    #[unsafe(method(rightMouseUp:))]
+    fn right_mouse_up(&self, event: &NSEvent) {
+      handle_input_event(self, event, || {
+        unsafe { objc2::msg_send![super(self), rightMouseUp: event] }
+      });
+    }
+
+    #[unsafe(method(mouseMoved:))]
+    fn mouse_moved(&self, event: &NSEvent) {
+      handle_input_event(self, event, || {
+        unsafe { objc2::msg_send![super(self), mouseMoved: event] }
+      });
+    }
+
+    #[unsafe(method(scrollWheel:))]
+    fn scroll_wheel(&self, event: &NSEvent) {
+      handle_input_event(self, event, || {
+        unsafe { objc2::msg_send![super(self), scrollWheel: event] }
+      });
+    }
+  }
+
   // Synthetic mouse events
   #[cfg(target_os = "macos")]
   impl WryWebView {
     #[unsafe(method(otherMouseDown:))]
     fn other_mouse_down(&self, event: &NSEvent) {
-      synthetic_mouse_events::other_mouse_down(self, event)
+      handle_input_event(self, event, || {
+        synthetic_mouse_events::other_mouse_down(self, event)
+      });
     }
 
     #[unsafe(method(otherMouseUp:))]
     fn other_mouse_up(&self, event: &NSEvent) {
-      synthetic_mouse_events::other_mouse_up(self, event)
+      handle_input_event(self, event, || {
+        synthetic_mouse_events::other_mouse_up(self, event)
+      });
     }
   }
 );
+
+#[cfg(target_os = "macos")]
+fn handle_input_event<F>(webview: &WryWebView, event: &NSEvent, default_handler: F)
+where
+  F: FnOnce(),
+{
+  if let Some(handler) = &webview.ivars().input_event_handler {
+    if let Some(window_event) = WindowEvent::from_ns_event(event) {
+      match handler(window_event) {
+        InputEventResponse::Propagate => default_handler(),
+        InputEventResponse::Block => {
+          // Event is blocked, don't call default handler
+        }
+      }
+    } else {
+      default_handler();
+    }
+  } else {
+    default_handler();
+  }
+}
 
 // Custom Protocol Task Checker
 impl WryWebView {

@@ -305,6 +305,8 @@ impl InnerWebView {
         accept_first_mouse: Bool::new(attributes.accept_first_mouse),
         #[cfg(target_os = "ios")]
         input_accessory_view_builder: pl_attrs.input_accessory_view_builder,
+        #[cfg(target_os = "macos")]
+        input_event_handler: attributes.input_event_handler,
         custom_protocol_task_ids: Default::default(),
       });
 
