@@ -710,7 +710,7 @@ pub struct WebViewAttributes<'a> {
     Option<Box<dyn Fn(String, NewWindowFeatures) -> NewWindowResponse + Send + Sync>>,
 
   /// TODO: document
-  pub input_event_handler: Option<Box<dyn Fn(event::InputEvent) -> InputEventResponse>>,
+  pub input_event_handler: Option<Rc<dyn Fn(event::InputEvent) -> InputEventResponse>>,
 
   /// Enables clipboard access for the page rendered on **Linux** and **Windows**.
   ///
@@ -1328,7 +1328,7 @@ impl<'a> WebViewBuilder<'a> {
     mut self,
     callback: impl Fn(event::InputEvent) -> InputEventResponse + 'static,
   ) -> Self {
-    self.attrs.input_event_handler = Some(Box::new(callback));
+    self.attrs.input_event_handler = Some(Rc::new(callback));
     self
   }
 

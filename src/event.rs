@@ -294,13 +294,13 @@ impl InputEvent {
 
     match event.event_type() {
       gtk::gdk::EventType::KeyPress => Some(InputEvent::KeyDown {
-        key_code: keyval as u16,
-        characters: event.string().map(|s| s.to_string()),
+        key_code: *keyval as u16,
+        characters: None,
         modifiers: key_modifiers,
       }),
       gtk::gdk::EventType::KeyRelease => Some(InputEvent::KeyUp {
-        key_code: keyval as u16,
-        characters: event.string().map(|s| s.to_string()),
+        key_code: *keyval as u16,
+        characters: None,
         modifiers: key_modifiers,
       }),
       _ => None,
