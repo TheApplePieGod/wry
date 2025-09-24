@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
+#[cfg(target_os = "macos")]
+use std::rc::Rc;
 use std::{collections::HashMap, sync::Mutex};
 
 #[cfg(target_os = "macos")]
@@ -34,7 +36,7 @@ pub struct WryWebViewIvars {
   #[cfg(target_os = "ios")]
   pub(crate) input_accessory_view_builder: Option<Box<crate::InputAccessoryViewBuilder>>,
   #[cfg(target_os = "macos")]
-  pub(crate) input_event_handler: Option<Box<dyn Fn(InputEvent) -> InputEventResponse>>,
+  pub(crate) input_event_handler: Option<Rc<dyn Fn(InputEvent) -> InputEventResponse>>,
   pub(crate) custom_protocol_task_ids: Mutex<HashMap<usize, Retained<NSUUID>>>,
 }
 
@@ -116,57 +118,57 @@ define_class!(
   impl WryWebView {
     #[unsafe(method(keyDown:))]
     fn key_down(&self, event: &NSEvent) {
-      handle_input_event(self, event, || {
-        unsafe { objc2::msg_send![super(self), keyDown: event] }
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), keyDown: event]
       });
     }
 
     #[unsafe(method(keyUp:))]
     fn key_up(&self, event: &NSEvent) {
-      handle_input_event(self, event, || {
-        unsafe { objc2::msg_send![super(self), keyUp: event] }
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), keyUp: event]
       });
     }
 
     #[unsafe(method(mouseDown:))]
     fn mouse_down(&self, event: &NSEvent) {
-      handle_input_event(self, event, || {
-        unsafe { objc2::msg_send![super(self), mouseDown: event] }
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), mouseDown: event]
       });
     }
 
     #[unsafe(method(mouseUp:))]
     fn mouse_up(&self, event: &NSEvent) {
-      handle_input_event(self, event, || {
-        unsafe { objc2::msg_send![super(self), mouseUp: event] }
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), mouseUp: event]
       });
     }
 
     #[unsafe(method(rightMouseDown:))]
     fn right_mouse_down(&self, event: &NSEvent) {
-      handle_input_event(self, event, || {
-        unsafe { objc2::msg_send![super(self), rightMouseDown: event] }
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), rightMouseDown: event]
       });
     }
 
     #[unsafe(method(rightMouseUp:))]
     fn right_mouse_up(&self, event: &NSEvent) {
-      handle_input_event(self, event, || {
-        unsafe { objc2::msg_send![super(self), rightMouseUp: event] }
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), rightMouseUp: event]
       });
     }
 
     #[unsafe(method(mouseMoved:))]
     fn mouse_moved(&self, event: &NSEvent) {
-      handle_input_event(self, event, || {
-        unsafe { objc2::msg_send![super(self), mouseMoved: event] }
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), mouseMoved: event]
       });
     }
 
     #[unsafe(method(scrollWheel:))]
     fn scroll_wheel(&self, event: &NSEvent) {
-      handle_input_event(self, event, || {
-        unsafe { objc2::msg_send![super(self), scrollWheel: event] }
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), scrollWheel: event]
       });
     }
   }

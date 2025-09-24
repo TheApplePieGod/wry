@@ -407,10 +407,10 @@ use http::{Request, Response};
 pub use cookie;
 pub use dpi;
 pub use error::*;
+pub use event::{InputEvent, Key, KeyModifiers, MouseButton};
 pub use http;
 pub use proxy::{ProxyConfig, ProxyEndpoint};
 pub use web_context::WebContext;
-pub use event::{InputEvent, MouseButton, KeyModifiers};
 
 #[cfg(target_os = "ios")]
 pub type InputAccessoryViewBuilder =

@@ -1,20 +1,18 @@
+#[cfg(target_os = "linux")]
+use gtk::gdk::{EventButton, EventKey, EventMotion, EventScroll, ModifierType};
 #[cfg(target_os = "macos")]
 use objc2_app_kit::NSEvent;
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::*;
-#[cfg(target_os = "linux")]
-use gtk::gdk::{EventButton, EventKey, EventMotion, EventScroll, ModifierType};
 
 #[derive(Debug, Clone)]
 pub enum InputEvent {
   KeyDown {
-    key_code: u16,
-    characters: Option<String>,
+    key: Key,
     modifiers: KeyModifiers,
   },
   KeyUp {
-    key_code: u16,
-    characters: Option<String>,
+    key: Key,
     modifiers: KeyModifiers,
   },
   MouseDown {
@@ -47,11 +45,278 @@ pub struct KeyModifiers {
   pub command: bool,
 }
 
+#[repr(i32)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum Key {
+  Space,
+  Apostrophe,
+  Comma,
+  Minus,
+  Period,
+  Slash,
+  Semicolon,
+  Equal,
+  A,
+  B,
+  C,
+  D,
+  E,
+  F,
+  G,
+  H,
+  I,
+  J,
+  K,
+  L,
+  M,
+  N,
+  O,
+  P,
+  Q,
+  R,
+  S,
+  T,
+  U,
+  V,
+  W,
+  X,
+  Y,
+  Z,
+  LeftBracket,
+  Backslash,
+  RightBracket,
+  GraveAccent,
+  World1,
+  World2,
+  Escape,
+  Enter,
+  Tab,
+  Backspace,
+  Insert,
+  Delete,
+  Right,
+  Left,
+  Down,
+  Up,
+  PageUp,
+  PageDown,
+  Home,
+  End,
+  CapsLock,
+  ScrollLock,
+  NumLock,
+  PrintScreen,
+  Pause,
+  F1,
+  F2,
+  F3,
+  F4,
+  F5,
+  F6,
+  F7,
+  F8,
+  F9,
+  F10,
+  F11,
+  F12,
+  Kp0,
+  Kp1,
+  Kp2,
+  Kp3,
+  Kp4,
+  Kp5,
+  Kp6,
+  Kp7,
+  Kp8,
+  Kp9,
+  KpDecimal,
+  KpDivide,
+  KpMultiply,
+  KpSubtract,
+  KpAdd,
+  KpEnter,
+  KpEqual,
+  LeftShift,
+  LeftControl,
+  LeftAlt,
+  LeftSuper,
+  RightShift,
+  RightControl,
+  RightAlt,
+  RightSuper,
+  Menu,
+  Unknown,
+}
+
 #[derive(Debug, Clone)]
 pub enum MouseButton {
   Left,
   Right,
   Other(i16),
+}
+
+impl Key {
+  #[cfg(target_os = "macos")]
+  pub fn from_keycode(code: u16) -> Self {
+    match code {
+      0x00 => Key::A,
+      0x0B => Key::B,
+      0x08 => Key::C,
+      0x02 => Key::D,
+      0x0E => Key::E,
+      0x03 => Key::F,
+      0x05 => Key::G,
+      0x04 => Key::H,
+      0x22 => Key::I,
+      0x26 => Key::J,
+      0x28 => Key::K,
+      0x25 => Key::L,
+      0x2E => Key::M,
+      0x2D => Key::N,
+      0x1F => Key::O,
+      0x23 => Key::P,
+      0x0C => Key::Q,
+      0x0F => Key::R,
+      0x01 => Key::S,
+      0x11 => Key::T,
+      0x20 => Key::U,
+      0x09 => Key::V,
+      0x0D => Key::W,
+      0x07 => Key::X,
+      0x10 => Key::Y,
+      0x06 => Key::Z,
+      0x31 => Key::Space,
+      0x33 => Key::Backspace,
+      0x30 => Key::Tab,
+      0x24 => Key::Enter,
+      0x35 => Key::Escape,
+      0x1B => Key::CapsLock,
+      0x7A => Key::F1,
+      0x78 => Key::F2,
+      0x63 => Key::F3,
+      0x76 => Key::F4,
+      0x60 => Key::F5,
+      0x61 => Key::F6,
+      0x62 => Key::F7,
+      0x64 => Key::F8,
+      0x65 => Key::F9,
+      0x6D => Key::F10,
+      0x67 => Key::F11,
+      0x6F => Key::F12,
+      0x7D => Key::Down,
+      0x7B => Key::Left,
+      0x7C => Key::Right,
+      0x7E => Key::Up,
+      0x73 => Key::Home,
+      0x77 => Key::End,
+      0x74 => Key::PageUp,
+      0x79 => Key::PageDown,
+      0x72 => Key::Insert,
+      0x75 => Key::Delete,
+      0x38 => Key::LeftShift,
+      0x3B => Key::LeftControl,
+      0x3A => Key::LeftAlt,
+      0x37 => Key::LeftSuper,
+      0x3C => Key::RightShift,
+      0x3E => Key::RightControl,
+      0x3D => Key::RightAlt,
+      0x36 => Key::RightSuper,
+      _ => Key::Unknown,
+    }
+  }
+
+  #[cfg(target_os = "windows")]
+  pub fn from_keycode(code: u16) -> Self {
+    use winapi::um::winuser::*;
+    match code {
+      VK_SPACE => Key::Space,
+      VK_RETURN => Key::Enter,
+      VK_BACK => Key::Backspace,
+      VK_TAB => Key::Tab,
+      VK_ESCAPE => Key::Escape,
+      VK_CAPITAL => Key::CapsLock,
+      VK_LEFT => Key::Left,
+      VK_RIGHT => Key::Right,
+      VK_UP => Key::Up,
+      VK_DOWN => Key::Down,
+      VK_HOME => Key::Home,
+      VK_END => Key::End,
+      VK_PRIOR => Key::PageUp,
+      VK_NEXT => Key::PageDown,
+      VK_INSERT => Key::Insert,
+      VK_DELETE => Key::Delete,
+      VK_LSHIFT => Key::LeftShift,
+      VK_RSHIFT => Key::RightShift,
+      VK_LCONTROL => Key::LeftControl,
+      VK_RCONTROL => Key::RightControl,
+      VK_LMENU => Key::LeftAlt,
+      VK_RMENU => Key::RightAlt,
+      VK_LWIN => Key::LeftSuper,
+      VK_RWIN => Key::RightSuper,
+      VK_F1 => Key::F1,
+      VK_F2 => Key::F2,
+      VK_F3 => Key::F3,
+      VK_F4 => Key::F4,
+      VK_F5 => Key::F5,
+      VK_F6 => Key::F6,
+      VK_F7 => Key::F7,
+      VK_F8 => Key::F8,
+      VK_F9 => Key::F9,
+      VK_F10 => Key::F10,
+      VK_F11 => Key::F11,
+      VK_F12 => Key::F12,
+      0x41..=0x5A => {
+        // A-Z
+        unsafe { std::mem::transmute((code - 0x41) as i32 + Key::A as i32) }
+      }
+      _ => Key::Unknown,
+    }
+  }
+
+  #[cfg(target_os = "linux")]
+  pub fn from_keycode(code: u16) -> Self {
+    // GTK key codes from GDK (simplified)
+    match code {
+      0x20 => Key::Space,
+      0xFF08 => Key::Backspace,
+      0xFF09 => Key::Tab,
+      0xFF0D => Key::Enter,
+      0xFF1B => Key::Escape,
+      0xFFE1 => Key::LeftShift,
+      0xFFE2 => Key::RightShift,
+      0xFFE3 => Key::LeftControl,
+      0xFFE4 => Key::RightControl,
+      0xFFE9 => Key::LeftAlt,
+      0xFFEA => Key::RightAlt,
+      0xFFEB => Key::LeftSuper,
+      0xFFEC => Key::RightSuper,
+      0xFF50 => Key::Home,
+      0xFF57 => Key::End,
+      0xFF55 => Key::PageUp,
+      0xFF56 => Key::PageDown,
+      0xFF51 => Key::Left,
+      0xFF53 => Key::Right,
+      0xFF52 => Key::Up,
+      0xFF54 => Key::Down,
+      0xFFBE => Key::F1,
+      0xFFBF => Key::F2,
+      0xFFC0 => Key::F3,
+      0xFFC1 => Key::F4,
+      0xFFC2 => Key::F5,
+      0xFFC3 => Key::F6,
+      0xFFC4 => Key::F7,
+      0xFFC5 => Key::F8,
+      0xFFC6 => Key::F9,
+      0xFFC7 => Key::F10,
+      0xFFC8 => Key::F11,
+      0xFFC9 => Key::F12,
+      0x0061..=0x007A => {
+        // a-z
+        unsafe { std::mem::transmute((code - 0x0061) as i32 + Key::A as i32) }
+      }
+      _ => Key::Unknown,
+    }
+  }
 }
 
 impl InputEvent {
@@ -72,23 +337,17 @@ impl InputEvent {
     match event_type {
       NSEventType::KeyDown => {
         let key_code = unsafe { event.keyCode() };
-        let characters = unsafe { event.characters() }
-          .map(|chars| chars.to_string());
 
         Some(InputEvent::KeyDown {
-          key_code,
-          characters,
+          key: Key::from_keycode(key_code),
           modifiers,
         })
       }
       NSEventType::KeyUp => {
         let key_code = unsafe { event.keyCode() };
-        let characters = unsafe { event.characters() }
-          .map(|chars| chars.to_string());
 
         Some(InputEvent::KeyUp {
-          key_code,
-          characters,
+          key: Key::from_keycode(key_code),
           modifiers,
         })
       }
@@ -142,7 +401,10 @@ impl InputEvent {
           modifiers,
         })
       }
-      NSEventType::MouseMoved | NSEventType::LeftMouseDragged | NSEventType::RightMouseDragged | NSEventType::OtherMouseDragged => {
+      NSEventType::MouseMoved
+      | NSEventType::LeftMouseDragged
+      | NSEventType::RightMouseDragged
+      | NSEventType::OtherMouseDragged => {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseMoved {
           location: (location_in_window.x, location_in_window.y),
@@ -179,16 +441,14 @@ impl InputEvent {
       WM_KEYDOWN | WM_SYSKEYDOWN => {
         let key_code = wparam as u16;
         Some(InputEvent::KeyDown {
-          key_code,
-          characters: None, // Windows WM_KEYDOWN doesn't provide character info
+          key: Key::from_keycode(key_code),
           modifiers,
         })
       }
       WM_KEYUP | WM_SYSKEYUP => {
         let key_code = wparam as u16;
         Some(InputEvent::KeyUp {
-          key_code,
-          characters: None,
+          key: Key::from_keycode(key_code),
           modifiers,
         })
       }
@@ -294,13 +554,11 @@ impl InputEvent {
 
     match event.event_type() {
       gtk::gdk::EventType::KeyPress => Some(InputEvent::KeyDown {
-        key_code: *keyval as u16,
-        characters: None,
+        key: Key::from_keycode(*keyval as u16),
         modifiers: key_modifiers,
       }),
       gtk::gdk::EventType::KeyRelease => Some(InputEvent::KeyUp {
-        key_code: *keyval as u16,
-        characters: None,
+        key: Key::from_keycode(*keyval as u16),
         modifiers: key_modifiers,
       }),
       _ => None,
