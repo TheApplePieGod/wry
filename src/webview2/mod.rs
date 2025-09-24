@@ -49,7 +49,7 @@ static EXEC_MSG_ID: Lazy<u32> = Lazy::new(|| unsafe { RegisterWindowMessageA(s!(
 
 // Simple approach: store handler per thread using thread_local
 thread_local! {
-  static THREAD_HOOK_HANDLERS: RefCell<HashMap<isize, Box<dyn Fn(InputEvent) -> InputEventResponse>>> = RefCell::new(HashMap::new());
+  static THREAD_HOOK_HANDLERS: RefCell<HashMap<isize, Rc<dyn Fn(InputEvent) -> InputEventResponse>>> = RefCell::new(HashMap::new());
 }
 
 impl From<webview2_com::Error> for Error {
@@ -1321,7 +1321,7 @@ impl InnerWebView {
   #[inline]
   unsafe fn install_input_hooks(
     hwnd: HWND,
-    input_event_handler: Box<dyn Fn(InputEvent) -> InputEventResponse>,
+    input_event_handler: Rc<dyn Fn(InputEvent) -> InputEventResponse>,
   ) -> (Option<HHOOK>, Option<HHOOK>) {
     THREAD_HOOK_HANDLERS.with(|handlers| {
       handlers

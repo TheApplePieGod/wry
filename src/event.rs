@@ -227,47 +227,47 @@ impl Key {
 
   #[cfg(target_os = "windows")]
   pub fn from_keycode(code: u16) -> Self {
-    use winapi::um::winuser::*;
     match code {
-      VK_SPACE => Key::Space,
-      VK_RETURN => Key::Enter,
-      VK_BACK => Key::Backspace,
-      VK_TAB => Key::Tab,
-      VK_ESCAPE => Key::Escape,
-      VK_CAPITAL => Key::CapsLock,
-      VK_LEFT => Key::Left,
-      VK_RIGHT => Key::Right,
-      VK_UP => Key::Up,
-      VK_DOWN => Key::Down,
-      VK_HOME => Key::Home,
-      VK_END => Key::End,
-      VK_PRIOR => Key::PageUp,
-      VK_NEXT => Key::PageDown,
-      VK_INSERT => Key::Insert,
-      VK_DELETE => Key::Delete,
-      VK_LSHIFT => Key::LeftShift,
-      VK_RSHIFT => Key::RightShift,
-      VK_LCONTROL => Key::LeftControl,
-      VK_RCONTROL => Key::RightControl,
-      VK_LMENU => Key::LeftAlt,
-      VK_RMENU => Key::RightAlt,
-      VK_LWIN => Key::LeftSuper,
-      VK_RWIN => Key::RightSuper,
-      VK_F1 => Key::F1,
-      VK_F2 => Key::F2,
-      VK_F3 => Key::F3,
-      VK_F4 => Key::F4,
-      VK_F5 => Key::F5,
-      VK_F6 => Key::F6,
-      VK_F7 => Key::F7,
-      VK_F8 => Key::F8,
-      VK_F9 => Key::F9,
-      VK_F10 => Key::F10,
-      VK_F11 => Key::F11,
-      VK_F12 => Key::F12,
+      0x20 => Key::Space,       // VK_SPACE
+      0x0D => Key::Enter,       // VK_RETURN
+      0x08 => Key::Backspace,   // VK_BACK
+      0x09 => Key::Tab,         // VK_TAB
+      0x1B => Key::Escape,      // VK_ESCAPE
+      0x14 => Key::CapsLock,    // VK_CAPITAL
+      0x25 => Key::Left,        // VK_LEFT
+      0x27 => Key::Right,       // VK_RIGHT
+      0x26 => Key::Up,          // VK_UP
+      0x28 => Key::Down,        // VK_DOWN
+      0x24 => Key::Home,        // VK_HOME
+      0x23 => Key::End,         // VK_END
+      0x21 => Key::PageUp,      // VK_PRIOR
+      0x22 => Key::PageDown,    // VK_NEXT
+      0x2D => Key::Insert,      // VK_INSERT
+      0x2E => Key::Delete,      // VK_DELETE
+      0xA0 => Key::LeftShift,   // VK_LSHIFT
+      0xA1 => Key::RightShift,  // VK_RSHIFT
+      0xA2 => Key::LeftControl, // VK_LCONTROL
+      0xA3 => Key::RightControl,// VK_RCONTROL
+      0xA4 => Key::LeftAlt,     // VK_LMENU
+      0xA5 => Key::RightAlt,    // VK_RMENU
+      0x5B => Key::LeftSuper,   // VK_LWIN
+      0x5C => Key::RightSuper,  // VK_RWIN
+      0x70 => Key::F1,          // VK_F1
+      0x71 => Key::F2,          // VK_F2
+      0x72 => Key::F3,          // VK_F3
+      0x73 => Key::F4,          // VK_F4
+      0x74 => Key::F5,          // VK_F5
+      0x75 => Key::F6,          // VK_F6
+      0x76 => Key::F7,          // VK_F7
+      0x77 => Key::F8,          // VK_F8
+      0x78 => Key::F9,          // VK_F9
+      0x79 => Key::F10,         // VK_F10
+      0x7A => Key::F11,         // VK_F11
+      0x7B => Key::F12,         // VK_F12
       0x41..=0x5A => {
-        // A-Z
-        unsafe { std::mem::transmute((code - 0x41) as i32 + Key::A as i32) }
+        // Letters A-Z
+        let index = (code - 0x41) as i32; // 0..25
+        unsafe { std::mem::transmute(Key::A as i32 + index) }
       }
       _ => Key::Unknown,
     }
