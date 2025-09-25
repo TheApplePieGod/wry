@@ -391,38 +391,43 @@ impl InnerWebView {
     // Enable event masks for key and mouse events
     webview.add_events(
       gtk::gdk::EventMask::KEY_PRESS_MASK
-        | gtk::gdk::EventMask::KEY_RELEASE_MASK
-        | gtk::gdk::EventMask::BUTTON_PRESS_MASK
-        | gtk::gdk::EventMask::BUTTON_RELEASE_MASK
-        | gtk::gdk::EventMask::POINTER_MOTION_MASK
-        | gtk::gdk::EventMask::SCROLL_MASK,
+      | gtk::gdk::EventMask::KEY_RELEASE_MASK
+      | gtk::gdk::EventMask::BUTTON_PRESS_MASK
+      | gtk::gdk::EventMask::BUTTON_RELEASE_MASK
+      | gtk::gdk::EventMask::POINTER_MOTION_MASK
+      | gtk::gdk::EventMask::SCROLL_MASK,
     );
 
     // Helper function to handle key events with deduplication
     let create_key_handler = |handler: Rc<dyn Fn(InputEvent) -> InputEventResponse>| {
-      let last_key_event = Rc::new(RefCell::new(None::<(gtk::gdk::EventType, u16, u32)>));
+      let last_key_event = Rc::new(RefCell::new((None::<(gtk::gdk::EventType, u16, u32)>, gtk::glib::Propagation::Proceed)));
 
       move |event: &gtk::gdk::EventKey| {
         let event_key = (event.event_type(), event.hardware_keycode(), event.time());
 
         // Check if we've already processed this exact event
-        if let Ok(mut last) = last_key_event.try_borrow_mut() {
-          if let Some(last_event) = *last {
+        if let Ok(last) = last_key_event.try_borrow() {
+          if let (Some(last_event), last_response) = *last {
             if last_event == event_key {
-              return gtk::glib::Propagation::Stop;
+              return last_response;
             }
           }
-          *last = Some(event_key);
         }
 
-        if let Some(window_event) = InputEvent::from_gdk_event_key(event) {
+        let response = if let Some(window_event) = InputEvent::from_gdk_event_key(event) {
           match handler(window_event) {
             InputEventResponse::Block => gtk::glib::Propagation::Stop,
             InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
           }
         } else {
           gtk::glib::Propagation::Proceed
+        };
+
+        if let Ok(mut last) = last_key_event.try_borrow_mut() {
+          *last = (Some(event_key), response);
         }
+
+        response
       }
     };
 
