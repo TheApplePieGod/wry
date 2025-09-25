@@ -397,9 +397,26 @@ impl InnerWebView {
         | gtk::gdk::EventMask::SCROLL_MASK,
     );
 
+    // Track the last processed event to prevent duplicates
+    use std::cell::RefCell;
+    let last_key_event = Rc::new(RefCell::new(None::<(gtk::gdk::EventType, u16, u32)>));
+
     // Key event handlers
     let handler_key = handler.clone();
+    let last_key_event_press = last_key_event.clone();
     webview.connect_key_press_event(move |_, event| {
+      let event_key = (event.event_type(), event.hardware_keycode(), event.time());
+
+      // Check if we've already processed this exact event
+      if let Ok(mut last) = last_key_event_press.try_borrow_mut() {
+        if let Some(last_event) = *last {
+          if last_event == event_key {
+            return gtk::glib::Propagation::Stop;
+          }
+        }
+        *last = Some(event_key);
+      }
+
       if let Some(window_event) = InputEvent::from_gdk_event_key(event) {
         match handler_key(window_event) {
           InputEventResponse::Block => gtk::glib::Propagation::Stop,
@@ -411,7 +428,20 @@ impl InnerWebView {
     });
 
     let handler_key = handler.clone();
+    let last_key_event_release = last_key_event.clone();
     webview.connect_key_release_event(move |_, event| {
+      let event_key = (event.event_type(), event.hardware_keycode(), event.time());
+
+      // Check if we've already processed this exact event
+      if let Ok(mut last) = last_key_event_release.try_borrow_mut() {
+        if let Some(last_event) = *last {
+          if last_event == event_key {
+            return gtk::glib::Propagation::Stop;
+          }
+        }
+        *last = Some(event_key);
+      }
+
       if let Some(window_event) = InputEvent::from_gdk_event_key(event) {
         match handler_key(window_event) {
           InputEventResponse::Block => gtk::glib::Propagation::Stop,
