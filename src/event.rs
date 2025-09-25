@@ -2,6 +2,8 @@
 use gtk::gdk::{EventButton, EventKey, EventMotion, EventScroll, ModifierType};
 #[cfg(target_os = "macos")]
 use objc2_app_kit::NSEvent;
+#[cfg(target_os = "macos")]
+use objc2_foundation::NSRect;
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -210,14 +212,14 @@ impl Key {
       0x1D => Key::Num0,
 
       // Special chars
-      0x27 => Key::Semicolon,
-      0x29 => Key::Apostrophe,
-      0x2A => Key::GraveAccent,
+      0x29 => Key::Semicolon,
+      0x27 => Key::Apostrophe,
+      0x32 => Key::GraveAccent,
       0x2B => Key::Comma,
       0x2C => Key::Slash,
       0x2F => Key::Period,
-      0x1B => Key::Equal,
-      0x18 => Key::Minus,
+      0x18 => Key::Equal,
+      0x1B => Key::Minus,
       0x21 => Key::LeftBracket,
       0x1E => Key::RightBracket,
       0x2A => Key::Backslash,
@@ -388,7 +390,7 @@ impl Key {
       0x6A => Key::KpMultiply,
       0x6D => Key::KpSubtract,
       0x6B => Key::KpAdd,
-      0x0D => Key::KpEnter,   // Enter works for keypad too
+      0x0D => Key::KpEnter, // Enter works for keypad too
       0x92 => Key::PrintScreen,
       0x13 => Key::Pause,
 
@@ -440,24 +442,24 @@ impl Key {
       19 => Key::Num0,
 
       // Special characters (US QWERTY positions)
-      34 => Key::LeftBracket,   // [
-      35 => Key::RightBracket,  // ]
-      51 => Key::Backslash,     // '\'
-      49 => Key::GraveAccent,   // `
-      47 => Key::Semicolon,     // ;
-      48 => Key::Apostrophe,    // '
-      20 => Key::Minus,         // -
-      21 => Key::Equal,         // =
-      59 => Key::Comma,         // ,
-      60 => Key::Period,        // .
-      61 => Key::Slash,         // /
+      34 => Key::LeftBracket,  // [
+      35 => Key::RightBracket, // ]
+      51 => Key::Backslash,    // '\'
+      49 => Key::GraveAccent,  // `
+      47 => Key::Semicolon,    // ;
+      48 => Key::Apostrophe,   // '
+      20 => Key::Minus,        // -
+      21 => Key::Equal,        // =
+      59 => Key::Comma,        // ,
+      60 => Key::Period,       // .
+      61 => Key::Slash,        // /
 
       // Whitespace
       65 => Key::Space,
       36 => Key::Enter,
       22 => Key::Backspace,
       23 => Key::Tab,
-      9  => Key::Escape,
+      9 => Key::Escape,
 
       // Navigation
       113 => Key::Left,
@@ -527,7 +529,7 @@ impl Key {
 
 impl InputEvent {
   #[cfg(target_os = "macos")]
-  pub fn from_ns_event(event: &NSEvent) -> Option<Self> {
+  pub fn from_ns_event(event: &NSEvent, frame: &NSRect) -> Option<Self> {
     use objc2_app_kit::{NSEventModifierFlags, NSEventType};
 
     let event_type = unsafe { event.r#type() };
@@ -538,6 +540,11 @@ impl InputEvent {
       control: modifier_flags.contains(NSEventModifierFlags::Control),
       alt: modifier_flags.contains(NSEventModifierFlags::Option),
       command: modifier_flags.contains(NSEventModifierFlags::Command),
+    };
+
+    let flip_y_coordinate = |location_in_window: objc2_core_foundation::CGPoint| -> (f64, f64) {
+      let flipped_y = frame.size.height - location_in_window.y;
+      (location_in_window.x, flipped_y)
     };
 
     match event_type {
@@ -561,7 +568,7 @@ impl InputEvent {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseDown {
           button: MouseButton::Left,
-          location: (location_in_window.x, location_in_window.y),
+          location: flip_y_coordinate(location_in_window),
           modifiers,
         })
       }
@@ -569,7 +576,7 @@ impl InputEvent {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseUp {
           button: MouseButton::Left,
-          location: (location_in_window.x, location_in_window.y),
+          location: flip_y_coordinate(location_in_window),
           modifiers,
         })
       }
@@ -577,7 +584,7 @@ impl InputEvent {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseDown {
           button: MouseButton::Right,
-          location: (location_in_window.x, location_in_window.y),
+          location: flip_y_coordinate(location_in_window),
           modifiers,
         })
       }
@@ -585,7 +592,7 @@ impl InputEvent {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseUp {
           button: MouseButton::Right,
-          location: (location_in_window.x, location_in_window.y),
+          location: flip_y_coordinate(location_in_window),
           modifiers,
         })
       }
@@ -594,7 +601,7 @@ impl InputEvent {
         let button_number = unsafe { event.buttonNumber() } as i16;
         Some(InputEvent::MouseDown {
           button: MouseButton::Other(button_number),
-          location: (location_in_window.x, location_in_window.y),
+          location: flip_y_coordinate(location_in_window),
           modifiers,
         })
       }
@@ -603,7 +610,7 @@ impl InputEvent {
         let button_number = unsafe { event.buttonNumber() } as i16;
         Some(InputEvent::MouseUp {
           button: MouseButton::Other(button_number),
-          location: (location_in_window.x, location_in_window.y),
+          location: flip_y_coordinate(location_in_window),
           modifiers,
         })
       }
@@ -613,7 +620,7 @@ impl InputEvent {
       | NSEventType::OtherMouseDragged => {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseMoved {
-          location: (location_in_window.x, location_in_window.y),
+          location: flip_y_coordinate(location_in_window),
           modifiers,
         })
       }
@@ -624,7 +631,7 @@ impl InputEvent {
         Some(InputEvent::ScrollWheel {
           delta_x,
           delta_y,
-          location: (location_in_window.x, location_in_window.y),
+          location: flip_y_coordinate(location_in_window),
           modifiers,
         })
       }
