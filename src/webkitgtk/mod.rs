@@ -30,6 +30,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
   collections::HashMap,
   rc::Rc,
+  cell::RefCell,
   sync::{Arc, Mutex},
 };
 #[cfg(any(debug_assertions, feature = "devtools"))]
@@ -398,7 +399,6 @@ impl InnerWebView {
     );
 
     // Track the last processed event to prevent duplicates
-    use std::cell::RefCell;
     let last_key_event = Rc::new(RefCell::new(None::<(gtk::gdk::EventType, u16, u32)>));
 
     // Key event handlers
