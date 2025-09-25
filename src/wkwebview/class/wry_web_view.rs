@@ -171,6 +171,13 @@ define_class!(
         objc2::msg_send![super(self), scrollWheel: event]
       });
     }
+
+    #[unsafe(method(flagsChanged:))]
+    fn flags_changed(&self, event: &NSEvent) {
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), flagsChanged: event]
+      });
+    }
   }
 
   // Synthetic mouse events

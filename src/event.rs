@@ -635,6 +635,25 @@ impl InputEvent {
           modifiers,
         })
       }
+      NSEventType::FlagsChanged => {
+        let key_code = unsafe { event.keyCode() };
+        let key = Key::from_keycode(key_code);
+
+        let is_pressed = match key_code {
+          0x38 | 0x3C => modifiers.shift,   // Left/Right Shift
+          0x3B | 0x3E => modifiers.control, // Left/Right Control
+          0x3A | 0x3D => modifiers.alt,     // Left/Right Alt/Option
+          0x37 | 0x36 => modifiers.command, // Left/Right Command/Super
+          0x39 => modifiers.shift,          // CapsLock (treated as shift modifier)
+          _ => return None,                 // Unknown modifier key
+        };
+
+        Some(if is_pressed {
+          InputEvent::KeyDown { key, modifiers }
+        } else {
+          InputEvent::KeyUp { key, modifiers }
+        })
+      }
       _ => None,
     }
   }
