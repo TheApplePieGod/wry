@@ -398,59 +398,40 @@ impl InnerWebView {
         | gtk::gdk::EventMask::SCROLL_MASK,
     );
 
-    // Track the last processed event to prevent duplicates
-    let last_key_event = Rc::new(RefCell::new(None::<(gtk::gdk::EventType, u16, u32)>));
+    // Helper function to handle key events with deduplication
+    let create_key_handler = |handler: Rc<dyn Fn(InputEvent) -> InputEventResponse>| {
+      let last_key_event = Rc::new(RefCell::new(None::<(gtk::gdk::EventType, u16, u32)>));
+
+      move |event: &gtk::gdk::EventKey| {
+        let event_key = (event.event_type(), event.hardware_keycode(), event.time());
+
+        // Check if we've already processed this exact event
+        if let Ok(mut last) = last_key_event.try_borrow_mut() {
+          if let Some(last_event) = *last {
+            if last_event == event_key {
+              return gtk::glib::Propagation::Stop;
+            }
+          }
+          *last = Some(event_key);
+        }
+
+        if let Some(window_event) = InputEvent::from_gdk_event_key(event) {
+          match handler(window_event) {
+            InputEventResponse::Block => gtk::glib::Propagation::Stop,
+            InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
+          }
+        } else {
+          gtk::glib::Propagation::Proceed
+        }
+      }
+    };
 
     // Key event handlers
-    let handler_key = handler.clone();
-    let last_key_event_press = last_key_event.clone();
-    webview.connect_key_press_event(move |_, event| {
-      let event_key = (event.event_type(), event.hardware_keycode(), event.time());
+    let key_press_handler = create_key_handler(handler.clone());
+    webview.connect_key_press_event(move |_, event| key_press_handler(event));
 
-      // Check if we've already processed this exact event
-      if let Ok(mut last) = last_key_event_press.try_borrow_mut() {
-        if let Some(last_event) = *last {
-          if last_event == event_key {
-            return gtk::glib::Propagation::Stop;
-          }
-        }
-        *last = Some(event_key);
-      }
-
-      if let Some(window_event) = InputEvent::from_gdk_event_key(event) {
-        match handler_key(window_event) {
-          InputEventResponse::Block => gtk::glib::Propagation::Stop,
-          InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
-        }
-      } else {
-        gtk::glib::Propagation::Proceed
-      }
-    });
-
-    let handler_key = handler.clone();
-    let last_key_event_release = last_key_event.clone();
-    webview.connect_key_release_event(move |_, event| {
-      let event_key = (event.event_type(), event.hardware_keycode(), event.time());
-
-      // Check if we've already processed this exact event
-      if let Ok(mut last) = last_key_event_release.try_borrow_mut() {
-        if let Some(last_event) = *last {
-          if last_event == event_key {
-            return gtk::glib::Propagation::Stop;
-          }
-        }
-        *last = Some(event_key);
-      }
-
-      if let Some(window_event) = InputEvent::from_gdk_event_key(event) {
-        match handler_key(window_event) {
-          InputEventResponse::Block => gtk::glib::Propagation::Stop,
-          InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
-        }
-      } else {
-        gtk::glib::Propagation::Proceed
-      }
-    });
+    let key_release_handler = create_key_handler(handler.clone());
+    webview.connect_key_release_event(move |_, event| key_release_handler(event));
 
     // Mouse button event handlers
     let handler_button = handler.clone();
