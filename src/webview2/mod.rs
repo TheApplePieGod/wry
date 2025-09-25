@@ -6,7 +6,13 @@ mod drag_drop;
 mod util;
 
 use std::{
-  borrow::Cow, cell::RefCell, collections::HashSet, fmt::Write, fs, path::PathBuf, rc::Rc,
+  borrow::Cow,
+  cell::RefCell,
+  collections::{HashMap, HashSet},
+  fmt::Write,
+  fs,
+  path::PathBuf,
+  rc::Rc,
   sync::mpsc,
 };
 
@@ -22,15 +28,16 @@ use windows::{
     Globalization::*,
     Graphics::Gdi::*,
     System::{Com::*, LibraryLoader::GetModuleHandleW},
-    UI::{Input::KeyboardAndMouse::SetFocus, Shell::*, WindowsAndMessaging::*},
+    UI::{Input::KeyboardAndMouse::{GetFocus, SetFocus}, Shell::*, WindowsAndMessaging::*},
   },
 };
 
 use self::drag_drop::DragDropController;
 use super::Theme;
 use crate::{
-  proxy::ProxyConfig, Error, MemoryUsageLevel, NewWindowFeatures, NewWindowOpener,
-  NewWindowResponse, PageLoadEvent, Rect, RequestAsyncResponder, Result, WebViewAttributes, RGBA,
+  event::InputEvent, proxy::ProxyConfig, Error, InputEventResponse, MemoryUsageLevel,
+  NewWindowFeatures, NewWindowOpener, NewWindowResponse, PageLoadEvent, Rect,
+  RequestAsyncResponder, Result, WebViewAttributes, RGBA,
 };
 
 type EventRegistrationToken = i64;
@@ -39,6 +46,11 @@ const PARENT_SUBCLASS_ID: u32 = WM_USER + 0x64;
 const PARENT_DESTROY_MESSAGE: u32 = WM_USER + 0x65;
 const MAIN_THREAD_DISPATCHER_SUBCLASS_ID: u32 = WM_USER + 0x66;
 static EXEC_MSG_ID: Lazy<u32> = Lazy::new(|| unsafe { RegisterWindowMessageA(s!("Wry::ExecMsg")) });
+
+// Simple approach: store handler per thread using thread_local
+thread_local! {
+  static THREAD_HOOK_HANDLERS: RefCell<HashMap<isize, Rc<dyn Fn(InputEvent) -> InputEventResponse>>> = RefCell::new(HashMap::new());
+}
 
 impl From<webview2_com::Error> for Error {
   fn from(err: webview2_com::Error) -> Self {
@@ -64,15 +76,20 @@ pub(crate) struct InnerWebView {
   // the webview gets dropped, otherwise we'll have a memory leak
   #[allow(dead_code)]
   drag_drop_controller: Option<DragDropController>,
+  keyboard_hook: Option<HHOOK>,
+  mouse_hook: Option<HHOOK>,
 }
 
 impl Drop for InnerWebView {
   fn drop(&mut self) {
     let _ = unsafe { self.controller.Close() };
     if self.is_child {
+      // Clean up input hooks if they exist
+      unsafe { Self::uninstall_input_hooks(self.hwnd, self.keyboard_hook, self.mouse_hook) };
       let _ = unsafe { DestroyWindow(self.hwnd) };
+    } else {
+      unsafe { Self::dettach_parent_subclass(*self.parent.borrow()) }
     }
-    unsafe { Self::dettach_parent_subclass(*self.parent.borrow()) }
   }
 }
 
@@ -135,6 +152,9 @@ impl InnerWebView {
       Self::create_environment(&attributes, pl_attrs.clone())?
     };
     let controller = Self::create_controller(hwnd, &env, attributes.incognito, background_color)?;
+
+    let input_event_handler = attributes.input_event_handler.take();
+
     let webview = Self::init_webview(
       parent,
       hwnd,
@@ -156,7 +176,7 @@ impl InnerWebView {
       DragDropController::new(hwnd, handler)
     });
 
-    let w = Self {
+    let mut w = Self {
       id,
       parent: RefCell::new(parent),
       hwnd,
@@ -165,7 +185,16 @@ impl InnerWebView {
       webview,
       env,
       drag_drop_controller,
+      keyboard_hook: None,
+      mouse_hook: None,
     };
+
+    // Install input hooks for child windows with input event handlers
+    if is_child && input_event_handler.is_some() {
+      let (keyboard_hook, mouse_hook) = unsafe { Self::install_input_hooks(hwnd, input_event_handler.unwrap()) };
+      w.keyboard_hook = keyboard_hook;
+      w.mouse_hook = mouse_hook;
+    }
 
     if is_child {
       w.set_bounds(bounds.unwrap_or_default())?;
@@ -299,6 +328,10 @@ impl InnerWebView {
 
       if attributes.autoplay {
         arguments.push_str(" --autoplay-policy=no-user-gesture-required");
+      }
+
+      if attributes.input_event_handler.is_some() {
+        arguments.push_str(" --enable-features=msWebView2BrowserHitTransparent");
       }
 
       if let Some(proxy_setting) = &attributes.proxy_config {
@@ -1286,6 +1319,154 @@ impl InnerWebView {
   }
 
   #[inline]
+  unsafe fn install_input_hooks(
+    hwnd: HWND,
+    input_event_handler: Rc<dyn Fn(InputEvent) -> InputEventResponse>,
+  ) -> (Option<HHOOK>, Option<HHOOK>) {
+    THREAD_HOOK_HANDLERS.with(|handlers| {
+      handlers
+        .borrow_mut()
+        .insert(hwnd.0 as isize, input_event_handler);
+    });
+
+    let module_handle = GetModuleHandleW(PCWSTR::null()).map(Into::into).ok();
+
+    let keyboard_hook = SetWindowsHookExW(
+      WH_KEYBOARD_LL,
+      Some(Self::low_level_keyboard_proc),
+      module_handle,
+      0, // System-wide hook
+    ).ok();
+
+    let mouse_hook = SetWindowsHookExW(
+      WH_MOUSE_LL,
+      Some(Self::low_level_mouse_proc),
+      module_handle,
+      0, // System-wide hook
+    ).ok();
+
+    (keyboard_hook, mouse_hook)
+  }
+
+  unsafe extern "system" fn low_level_keyboard_proc(
+    ncode: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+  ) -> LRESULT {
+    // Only process HC_ACTION
+    if ncode == HC_ACTION as i32 {
+      let kb_struct = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+
+      let foreground_hwnd = GetForegroundWindow();
+      let focus_hwnd = GetFocus();
+
+      let mut should_block = false;
+      THREAD_HOOK_HANDLERS.with(|handlers| {
+        if let Ok(handlers_map) = handlers.try_borrow() {
+          for (hwnd_raw, handler) in handlers_map.iter() {
+            let target_hwnd = HWND(*hwnd_raw as *mut _);
+
+            // Only process keyboard events if our webview has focus
+            // Check if focus is specifically on our webview or within our webview hierarchy
+            let webview_has_focus = focus_hwnd == target_hwnd
+              || IsChild(target_hwnd, focus_hwnd).as_bool()
+              || (foreground_hwnd == target_hwnd && focus_hwnd.0 == std::ptr::null_mut()); // fallback when GetFocus returns null but foreground is our window
+
+            if webview_has_focus {
+              if let Some(window_event) = InputEvent::from_windows_message(
+                wparam.0 as u32,
+                kb_struct.vkCode as usize,
+                0,
+              ) {
+                match handler(window_event) {
+                  crate::InputEventResponse::Block => {
+                    should_block = true;
+                    return;
+                  }
+                  crate::InputEventResponse::Propagate => {}
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if should_block {
+        return LRESULT(1);
+      }
+    }
+
+    CallNextHookEx(None, ncode, wparam, lparam)
+  }
+
+  unsafe extern "system" fn low_level_mouse_proc(
+    ncode: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+  ) -> LRESULT {
+    if ncode == HC_ACTION as i32 {
+      let mouse_struct = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+
+      let point = POINT { x: mouse_struct.pt.x, y: mouse_struct.pt.y };
+      let hwnd_under_cursor = WindowFromPoint(point);
+
+      let mut should_block = false;
+      THREAD_HOOK_HANDLERS.with(|handlers| {
+        if let Ok(handlers_map) = handlers.try_borrow() {
+          for (hwnd_raw, handler) in handlers_map.iter() {
+            let target_hwnd = HWND(*hwnd_raw as *mut _);
+
+            // Check if the cursor is over our webview or its child
+            if hwnd_under_cursor == target_hwnd || IsChild(target_hwnd, hwnd_under_cursor).as_bool() {
+              let mut relative_point = POINT { x: mouse_struct.pt.x, y: mouse_struct.pt.y };
+              let _ = ScreenToClient(target_hwnd, &mut relative_point);
+
+              if let Some(window_event) = InputEvent::from_windows_message(
+                wparam.0 as u32,
+                0,
+                ((relative_point.y as isize) << 16) | (relative_point.x as isize & 0xFFFF),
+              ) {
+                match handler(window_event) {
+                  crate::InputEventResponse::Block => {
+                    should_block = true;
+                    return;
+                  }
+                  crate::InputEventResponse::Propagate => { }
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if should_block {
+        return LRESULT(1);
+      }
+    }
+
+    CallNextHookEx(None, ncode, wparam, lparam)
+  }
+
+  #[inline]
+  unsafe fn uninstall_input_hooks(hwnd: HWND, keyboard_hook: Option<HHOOK>, mouse_hook: Option<HHOOK>) {
+    THREAD_HOOK_HANDLERS.with(|handlers| {
+      handlers.borrow_mut().remove(&(hwnd.0 as isize));
+    });
+
+    if let Some(hook) = keyboard_hook {
+      if hook.0 != std::ptr::null_mut() {
+        let _ = UnhookWindowsHookEx(hook);
+      }
+    }
+
+    if let Some(hook) = mouse_hook {
+      if hook.0 != std::ptr::null_mut() {
+        let _ = UnhookWindowsHookEx(hook);
+      }
+    }
+  }
+
+  #[inline]
   fn add_script_to_execute_on_document_created(webview: &ICoreWebView2, js: String) -> Result<()> {
     let webview = webview.clone();
     AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
@@ -1351,7 +1532,7 @@ impl InnerWebView {
 
 /// Public APIs
 impl InnerWebView {
-  pub fn id(&self) -> crate::WebViewId {
+  pub fn id<'a>(&'a self) -> crate::WebViewId<'a> {
     &self.id
   }
 
