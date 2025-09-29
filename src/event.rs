@@ -530,7 +530,6 @@ impl InputEvent {
   pub fn from_ns_event(event: &NSEvent, webview: &crate::WryWebView) -> Option<Self> {
     use objc2_app_kit::{NSEventModifierFlags, NSEventType};
 
-    let frame = webview.frame();
     let event_type = unsafe { event.r#type() };
     let modifier_flags = unsafe { event.modifierFlags() };
 
@@ -542,10 +541,8 @@ impl InputEvent {
     };
 
     let convert_coord = |location_in_window: objc2_core_foundation::CGPoint| -> (f64, f64) {
-      let location_in_view =
-        unsafe { webview.convertPoint_toView(location_in_window, Some(webview)) };
-      let flipped_y = frame.size.height - location_in_view.y;
-      (location_in_view.x, flipped_y)
+      let location_in_view = webview.convertPoint_fromView(location_in_window, None);
+      (location_in_view.x, location_in_view.y)
     };
 
     match event_type {
