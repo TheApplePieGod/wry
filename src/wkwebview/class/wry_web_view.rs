@@ -205,7 +205,7 @@ where
   F: FnOnce(),
 {
   if let Some(handler) = &webview.ivars().input_event_handler {
-    if let Some(window_event) = InputEvent::from_ns_event(event, &webview.frame()) {
+    if let Some(window_event) = InputEvent::from_ns_event(event, &webview) {
       match handler(window_event) {
         InputEventResponse::Propagate => default_handler(),
         InputEventResponse::Block => {

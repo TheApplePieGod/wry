@@ -2,8 +2,6 @@
 use gtk::gdk::{EventButton, EventKey, EventMotion, EventScroll, ModifierType};
 #[cfg(target_os = "macos")]
 use objc2_app_kit::NSEvent;
-#[cfg(target_os = "macos")]
-use objc2_foundation::NSRect;
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -529,9 +527,10 @@ impl Key {
 
 impl InputEvent {
   #[cfg(target_os = "macos")]
-  pub fn from_ns_event(event: &NSEvent, frame: &NSRect) -> Option<Self> {
+  pub fn from_ns_event(event: &NSEvent, webview: &crate::WryWebView) -> Option<Self> {
     use objc2_app_kit::{NSEventModifierFlags, NSEventType};
 
+    let frame = webview.frame();
     let event_type = unsafe { event.r#type() };
     let modifier_flags = unsafe { event.modifierFlags() };
 
@@ -542,9 +541,11 @@ impl InputEvent {
       command: modifier_flags.contains(NSEventModifierFlags::Command),
     };
 
-    let flip_y_coordinate = |location_in_window: objc2_core_foundation::CGPoint| -> (f64, f64) {
-      let flipped_y = frame.size.height - location_in_window.y;
-      (location_in_window.x, flipped_y)
+    let convert_coord = |location_in_window: objc2_core_foundation::CGPoint| -> (f64, f64) {
+      let location_in_view =
+        unsafe { webview.convertPoint_toView(location_in_window, Some(webview)) };
+      let flipped_y = frame.size.height - location_in_view.y;
+      (location_in_view.x, flipped_y)
     };
 
     match event_type {
@@ -568,7 +569,7 @@ impl InputEvent {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseDown {
           button: MouseButton::Left,
-          location: flip_y_coordinate(location_in_window),
+          location: convert_coord(location_in_window),
           modifiers,
         })
       }
@@ -576,7 +577,7 @@ impl InputEvent {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseUp {
           button: MouseButton::Left,
-          location: flip_y_coordinate(location_in_window),
+          location: convert_coord(location_in_window),
           modifiers,
         })
       }
@@ -584,7 +585,7 @@ impl InputEvent {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseDown {
           button: MouseButton::Right,
-          location: flip_y_coordinate(location_in_window),
+          location: convert_coord(location_in_window),
           modifiers,
         })
       }
@@ -592,7 +593,7 @@ impl InputEvent {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseUp {
           button: MouseButton::Right,
-          location: flip_y_coordinate(location_in_window),
+          location: convert_coord(location_in_window),
           modifiers,
         })
       }
@@ -601,7 +602,7 @@ impl InputEvent {
         let button_number = unsafe { event.buttonNumber() } as i16;
         Some(InputEvent::MouseDown {
           button: MouseButton::Other(button_number),
-          location: flip_y_coordinate(location_in_window),
+          location: convert_coord(location_in_window),
           modifiers,
         })
       }
@@ -610,7 +611,7 @@ impl InputEvent {
         let button_number = unsafe { event.buttonNumber() } as i16;
         Some(InputEvent::MouseUp {
           button: MouseButton::Other(button_number),
-          location: flip_y_coordinate(location_in_window),
+          location: convert_coord(location_in_window),
           modifiers,
         })
       }
@@ -620,7 +621,7 @@ impl InputEvent {
       | NSEventType::OtherMouseDragged => {
         let location_in_window = unsafe { event.locationInWindow() };
         Some(InputEvent::MouseMoved {
-          location: flip_y_coordinate(location_in_window),
+          location: convert_coord(location_in_window),
           modifiers,
         })
       }
@@ -631,7 +632,7 @@ impl InputEvent {
         Some(InputEvent::ScrollWheel {
           delta_x,
           delta_y,
-          location: flip_y_coordinate(location_in_window),
+          location: convert_coord(location_in_window),
           modifiers,
         })
       }
