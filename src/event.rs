@@ -5,7 +5,7 @@ use objc2_app_kit::NSEvent;
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum InputEvent {
   KeyDown {
     key: Key,
@@ -17,27 +17,25 @@ pub enum InputEvent {
   },
   MouseDown {
     button: MouseButton,
-    location: (f64, f64),
     modifiers: KeyModifiers,
   },
   MouseUp {
     button: MouseButton,
-    location: (f64, f64),
     modifiers: KeyModifiers,
   },
   MouseMoved {
-    location: (f64, f64),
+    location_in_webview: dpi::Position,
+    location_in_parent: dpi::Position,
     modifiers: KeyModifiers,
   },
   ScrollWheel {
     delta_x: f64,
     delta_y: f64,
-    location: (f64, f64),
     modifiers: KeyModifiers,
   },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct KeyModifiers {
   pub shift: bool,
   pub control: bool,
@@ -49,23 +47,23 @@ pub struct KeyModifiers {
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Key {
   Space,
-  Apostrophe,
+  Quote,
   Comma,
   Minus,
   Period,
   Slash,
   Semicolon,
   Equal,
-  Num0,
-  Num1,
-  Num2,
-  Num3,
-  Num4,
-  Num5,
-  Num6,
-  Num7,
-  Num8,
-  Num9,
+  Digit0,
+  Digit1,
+  Digit2,
+  Digit3,
+  Digit4,
+  Digit5,
+  Digit6,
+  Digit7,
+  Digit8,
+  Digit9,
   A,
   B,
   C,
@@ -95,19 +93,17 @@ pub enum Key {
   LeftBracket,
   Backslash,
   RightBracket,
-  GraveAccent,
-  World1,
-  World2,
+  Backquote,
   Escape,
   Enter,
   Tab,
   Backspace,
   Insert,
   Delete,
-  Right,
-  Left,
-  Down,
-  Up,
+  ArrowRight,
+  ArrowLeft,
+  ArrowDown,
+  ArrowUp,
   PageUp,
   PageDown,
   Home,
@@ -129,398 +125,396 @@ pub enum Key {
   F10,
   F11,
   F12,
-  Kp0,
-  Kp1,
-  Kp2,
-  Kp3,
-  Kp4,
-  Kp5,
-  Kp6,
-  Kp7,
-  Kp8,
-  Kp9,
-  KpDecimal,
-  KpDivide,
-  KpMultiply,
-  KpSubtract,
-  KpAdd,
-  KpEnter,
-  KpEqual,
-  LeftShift,
-  LeftControl,
-  LeftAlt,
-  LeftSuper,
-  RightShift,
-  RightControl,
-  RightAlt,
-  RightSuper,
-  Menu,
-  Unknown,
+  Numpad0,
+  Numpad1,
+  Numpad2,
+  Numpad3,
+  Numpad4,
+  Numpad5,
+  Numpad6,
+  Numpad7,
+  Numpad8,
+  Numpad9,
+  NumpadDecimal,
+  NumpadDivide,
+  NumpadMultiply,
+  NumpadSubtract,
+  NumpadAdd,
+  NumpadEnter,
+  NumpadEqual,
+  ShiftLeft,
+  ControlLeft,
+  AltLeft,
+  SuperLeft,
+  ShiftRight,
+  ControlRight,
+  AltRight,
+  SuperRight,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum MouseButton {
   Left,
   Right,
-  Other(i16),
+  Other(u16),
 }
 
 impl Key {
   #[cfg(target_os = "macos")]
-  pub fn from_keycode(code: u16) -> Self {
+  pub fn from_keycode(code: u16) -> Option<Self> {
     match code {
       // Letters
-      0x00 => Key::A,
-      0x0B => Key::B,
-      0x08 => Key::C,
-      0x02 => Key::D,
-      0x0E => Key::E,
-      0x03 => Key::F,
-      0x05 => Key::G,
-      0x04 => Key::H,
-      0x22 => Key::I,
-      0x26 => Key::J,
-      0x28 => Key::K,
-      0x25 => Key::L,
-      0x2E => Key::M,
-      0x2D => Key::N,
-      0x1F => Key::O,
-      0x23 => Key::P,
-      0x0C => Key::Q,
-      0x0F => Key::R,
-      0x01 => Key::S,
-      0x11 => Key::T,
-      0x20 => Key::U,
-      0x09 => Key::V,
-      0x0D => Key::W,
-      0x07 => Key::X,
-      0x10 => Key::Y,
-      0x06 => Key::Z,
+      0x00 => Some(Key::A),
+      0x0B => Some(Key::B),
+      0x08 => Some(Key::C),
+      0x02 => Some(Key::D),
+      0x0E => Some(Key::E),
+      0x03 => Some(Key::F),
+      0x05 => Some(Key::G),
+      0x04 => Some(Key::H),
+      0x22 => Some(Key::I),
+      0x26 => Some(Key::J),
+      0x28 => Some(Key::K),
+      0x25 => Some(Key::L),
+      0x2E => Some(Key::M),
+      0x2D => Some(Key::N),
+      0x1F => Some(Key::O),
+      0x23 => Some(Key::P),
+      0x0C => Some(Key::Q),
+      0x0F => Some(Key::R),
+      0x01 => Some(Key::S),
+      0x11 => Some(Key::T),
+      0x20 => Some(Key::U),
+      0x09 => Some(Key::V),
+      0x0D => Some(Key::W),
+      0x07 => Some(Key::X),
+      0x10 => Some(Key::Y),
+      0x06 => Some(Key::Z),
 
       // Numbers
-      0x12 => Key::Num1,
-      0x13 => Key::Num2,
-      0x14 => Key::Num3,
-      0x15 => Key::Num4,
-      0x17 => Key::Num5,
-      0x16 => Key::Num6,
-      0x1A => Key::Num7,
-      0x1C => Key::Num8,
-      0x19 => Key::Num9,
-      0x1D => Key::Num0,
+      0x12 => Some(Key::Digit1),
+      0x13 => Some(Key::Digit2),
+      0x14 => Some(Key::Digit3),
+      0x15 => Some(Key::Digit4),
+      0x17 => Some(Key::Digit5),
+      0x16 => Some(Key::Digit6),
+      0x1A => Some(Key::Digit7),
+      0x1C => Some(Key::Digit8),
+      0x19 => Some(Key::Digit9),
+      0x1D => Some(Key::Digit0),
 
       // Special chars
-      0x29 => Key::Semicolon,
-      0x27 => Key::Apostrophe,
-      0x32 => Key::GraveAccent,
-      0x2B => Key::Comma,
-      0x2C => Key::Slash,
-      0x2F => Key::Period,
-      0x18 => Key::Equal,
-      0x1B => Key::Minus,
-      0x21 => Key::LeftBracket,
-      0x1E => Key::RightBracket,
-      0x2A => Key::Backslash,
+      0x29 => Some(Key::Semicolon),
+      0x27 => Some(Key::Quote),
+      0x32 => Some(Key::Backquote),
+      0x2B => Some(Key::Comma),
+      0x2C => Some(Key::Slash),
+      0x2F => Some(Key::Period),
+      0x18 => Some(Key::Equal),
+      0x1B => Some(Key::Minus),
+      0x21 => Some(Key::LeftBracket),
+      0x1E => Some(Key::RightBracket),
+      0x2A => Some(Key::Backslash),
 
       // Whitespace / control
-      0x31 => Key::Space,
-      0x24 => Key::Enter,
-      0x30 => Key::Tab,
-      0x33 => Key::Backspace,
-      0x35 => Key::Escape,
+      0x31 => Some(Key::Space),
+      0x24 => Some(Key::Enter),
+      0x30 => Some(Key::Tab),
+      0x33 => Some(Key::Backspace),
+      0x35 => Some(Key::Escape),
 
       // Navigation
-      0x7B => Key::Left,
-      0x7C => Key::Right,
-      0x7E => Key::Up,
-      0x7D => Key::Down,
-      0x73 => Key::Home,
-      0x77 => Key::End,
-      0x74 => Key::PageUp,
-      0x79 => Key::PageDown,
-      0x72 => Key::Insert,
-      0x75 => Key::Delete,
+      0x7B => Some(Key::ArrowLeft),
+      0x7C => Some(Key::ArrowRight),
+      0x7E => Some(Key::ArrowUp),
+      0x7D => Some(Key::ArrowDown),
+      0x73 => Some(Key::Home),
+      0x77 => Some(Key::End),
+      0x74 => Some(Key::PageUp),
+      0x79 => Some(Key::PageDown),
+      0x72 => Some(Key::Insert),
+      0x75 => Some(Key::Delete),
 
       // Modifiers
-      0x38 => Key::LeftShift,
-      0x3C => Key::RightShift,
-      0x3B => Key::LeftControl,
-      0x3E => Key::RightControl,
-      0x3A => Key::LeftAlt,
-      0x3D => Key::RightAlt,
-      0x37 => Key::LeftSuper,
-      0x36 => Key::RightSuper,
-      0x39 => Key::CapsLock,
+      0x38 => Some(Key::ShiftLeft),
+      0x3C => Some(Key::ShiftRight),
+      0x3B => Some(Key::ControlLeft),
+      0x3E => Some(Key::ControlRight),
+      0x3A => Some(Key::AltLeft),
+      0x3D => Some(Key::AltRight),
+      0x37 => Some(Key::SuperLeft),
+      0x36 => Some(Key::SuperRight),
+      0x39 => Some(Key::CapsLock),
 
       // Function
-      0x7A => Key::F1,
-      0x78 => Key::F2,
-      0x63 => Key::F3,
-      0x76 => Key::F4,
-      0x60 => Key::F5,
-      0x61 => Key::F6,
-      0x62 => Key::F7,
-      0x64 => Key::F8,
-      0x65 => Key::F9,
-      0x6D => Key::F10,
-      0x67 => Key::F11,
-      0x6F => Key::F12,
+      0x7A => Some(Key::F1),
+      0x78 => Some(Key::F2),
+      0x63 => Some(Key::F3),
+      0x76 => Some(Key::F4),
+      0x60 => Some(Key::F5),
+      0x61 => Some(Key::F6),
+      0x62 => Some(Key::F7),
+      0x64 => Some(Key::F8),
+      0x65 => Some(Key::F9),
+      0x6D => Some(Key::F10),
+      0x67 => Some(Key::F11),
+      0x6F => Some(Key::F12),
 
-      _ => Key::Unknown,
+      _ => None,
     }
   }
 
   #[cfg(target_os = "windows")]
-  pub fn from_keycode(code: u16) -> Self {
+  pub fn from_keycode(code: u16) -> Option<Self> {
     match code {
       // Letters
-      0x41 => Key::A,
-      0x42 => Key::B,
-      0x43 => Key::C,
-      0x44 => Key::D,
-      0x45 => Key::E,
-      0x46 => Key::F,
-      0x47 => Key::G,
-      0x48 => Key::H,
-      0x49 => Key::I,
-      0x4A => Key::J,
-      0x4B => Key::K,
-      0x4C => Key::L,
-      0x4D => Key::M,
-      0x4E => Key::N,
-      0x4F => Key::O,
-      0x50 => Key::P,
-      0x51 => Key::Q,
-      0x52 => Key::R,
-      0x53 => Key::S,
-      0x54 => Key::T,
-      0x55 => Key::U,
-      0x56 => Key::V,
-      0x57 => Key::W,
-      0x58 => Key::X,
-      0x59 => Key::Y,
-      0x5A => Key::Z,
+      0x41 => Some(Key::A),
+      0x42 => Some(Key::B),
+      0x43 => Some(Key::C),
+      0x44 => Some(Key::D),
+      0x45 => Some(Key::E),
+      0x46 => Some(Key::F),
+      0x47 => Some(Key::G),
+      0x48 => Some(Key::H),
+      0x49 => Some(Key::I),
+      0x4A => Some(Key::J),
+      0x4B => Some(Key::K),
+      0x4C => Some(Key::L),
+      0x4D => Some(Key::M),
+      0x4E => Some(Key::N),
+      0x4F => Some(Key::O),
+      0x50 => Some(Key::P),
+      0x51 => Some(Key::Q),
+      0x52 => Some(Key::R),
+      0x53 => Some(Key::S),
+      0x54 => Some(Key::T),
+      0x55 => Some(Key::U),
+      0x56 => Some(Key::V),
+      0x57 => Some(Key::W),
+      0x58 => Some(Key::X),
+      0x59 => Some(Key::Y),
+      0x5A => Some(Key::Z),
 
       // Numbers (top row)
-      0x30 => Key::Num0,
-      0x31 => Key::Num1,
-      0x32 => Key::Num2,
-      0x33 => Key::Num3,
-      0x34 => Key::Num4,
-      0x35 => Key::Num5,
-      0x36 => Key::Num6,
-      0x37 => Key::Num7,
-      0x38 => Key::Num8,
-      0x39 => Key::Num9,
+      0x30 => Some(Key::Digit0),
+      0x31 => Some(Key::Digit1),
+      0x32 => Some(Key::Digit2),
+      0x33 => Some(Key::Digit3),
+      0x34 => Some(Key::Digit4),
+      0x35 => Some(Key::Digit5),
+      0x36 => Some(Key::Digit6),
+      0x37 => Some(Key::Digit7),
+      0x38 => Some(Key::Digit8),
+      0x39 => Some(Key::Digit9),
 
       // Special chars
-      0xBA => Key::Semicolon,    // ;
-      0xDE => Key::Apostrophe,   // '
-      0xC0 => Key::GraveAccent,  // `
-      0xBC => Key::Comma,        // ,
-      0xBF => Key::Slash,        // /
-      0xBE => Key::Period,       // .
-      0xBD => Key::Minus,        // -
-      0xBB => Key::Equal,        // =
-      0xDB => Key::LeftBracket,  // [
-      0xDD => Key::RightBracket, // ]
-      0xDC => Key::Backslash,    // '\'
+      0xBA => Some(Key::Semicolon),    // ;
+      0xDE => Some(Key::Quote),        // '
+      0xC0 => Some(Key::Backquote),    // `
+      0xBC => Some(Key::Comma),        // ,
+      0xBF => Some(Key::Slash),        // /
+      0xBE => Some(Key::Period),       // .
+      0xBD => Some(Key::Minus),        // -
+      0xBB => Some(Key::Equal),        // =
+      0xDB => Some(Key::LeftBracket),  // [
+      0xDD => Some(Key::RightBracket), // ]
+      0xDC => Some(Key::Backslash),    // \
 
       // Whitespace / control
-      0x20 => Key::Space,
-      0x0D => Key::Enter,
-      0x09 => Key::Tab,
-      0x08 => Key::Backspace,
-      0x1B => Key::Escape,
+      0x20 => Some(Key::Space),
+      0x0D => Some(Key::Enter),
+      0x09 => Some(Key::Tab),
+      0x08 => Some(Key::Backspace),
+      0x1B => Some(Key::Escape),
 
       // Navigation
-      0x25 => Key::Left,
-      0x27 => Key::Right,
-      0x26 => Key::Up,
-      0x28 => Key::Down,
-      0x24 => Key::Home,
-      0x23 => Key::End,
-      0x21 => Key::PageUp,
-      0x22 => Key::PageDown,
-      0x2D => Key::Insert,
-      0x2E => Key::Delete,
+      0x25 => Some(Key::ArrowLeft),
+      0x27 => Some(Key::ArrowRight),
+      0x26 => Some(Key::ArrowUp),
+      0x28 => Some(Key::ArrowDown),
+      0x24 => Some(Key::Home),
+      0x23 => Some(Key::End),
+      0x21 => Some(Key::PageUp),
+      0x22 => Some(Key::PageDown),
+      0x2D => Some(Key::Insert),
+      0x2E => Some(Key::Delete),
 
       // Modifiers
-      0xA0 => Key::LeftShift,
-      0xA1 => Key::RightShift,
-      0xA2 => Key::LeftControl,
-      0xA3 => Key::RightControl,
-      0xA4 => Key::LeftAlt,
-      0xA5 => Key::RightAlt,
-      0x5B => Key::LeftSuper,
-      0x5C => Key::RightSuper,
-      0x14 => Key::CapsLock,
-      0x90 => Key::NumLock,
-      0x91 => Key::ScrollLock,
+      0xA0 => Some(Key::ShiftLeft),
+      0xA1 => Some(Key::ShiftRight),
+      0xA2 => Some(Key::ControlLeft),
+      0xA3 => Some(Key::ControlRight),
+      0xA4 => Some(Key::AltLeft),
+      0xA5 => Some(Key::AltRight),
+      0x5B => Some(Key::SuperLeft),
+      0x5C => Some(Key::SuperRight),
+      0x14 => Some(Key::CapsLock),
+      0x90 => Some(Key::NumLock),
+      0x91 => Some(Key::ScrollLock),
 
       // Function keys
-      0x70 => Key::F1,
-      0x71 => Key::F2,
-      0x72 => Key::F3,
-      0x73 => Key::F4,
-      0x74 => Key::F5,
-      0x75 => Key::F6,
-      0x76 => Key::F7,
-      0x77 => Key::F8,
-      0x78 => Key::F9,
-      0x79 => Key::F10,
-      0x7A => Key::F11,
-      0x7B => Key::F12,
+      0x70 => Some(Key::F1),
+      0x71 => Some(Key::F2),
+      0x72 => Some(Key::F3),
+      0x73 => Some(Key::F4),
+      0x74 => Some(Key::F5),
+      0x75 => Some(Key::F6),
+      0x76 => Some(Key::F7),
+      0x77 => Some(Key::F8),
+      0x78 => Some(Key::F9),
+      0x79 => Some(Key::F10),
+      0x7A => Some(Key::F11),
+      0x7B => Some(Key::F12),
 
       // Keypad
-      0x60 => Key::Kp0,
-      0x61 => Key::Kp1,
-      0x62 => Key::Kp2,
-      0x63 => Key::Kp3,
-      0x64 => Key::Kp4,
-      0x65 => Key::Kp5,
-      0x66 => Key::Kp6,
-      0x67 => Key::Kp7,
-      0x68 => Key::Kp8,
-      0x69 => Key::Kp9,
-      0x6E => Key::KpDecimal,
-      0x6F => Key::KpDivide,
-      0x6A => Key::KpMultiply,
-      0x6D => Key::KpSubtract,
-      0x6B => Key::KpAdd,
-      0x0D => Key::KpEnter, // Enter works for keypad too
-      0x92 => Key::PrintScreen,
-      0x13 => Key::Pause,
+      0x60 => Some(Key::Numpad0),
+      0x61 => Some(Key::Numpad1),
+      0x62 => Some(Key::Numpad2),
+      0x63 => Some(Key::Numpad3),
+      0x64 => Some(Key::Numpad4),
+      0x65 => Some(Key::Numpad5),
+      0x66 => Some(Key::Numpad6),
+      0x67 => Some(Key::Numpad7),
+      0x68 => Some(Key::Numpad8),
+      0x69 => Some(Key::Numpad9),
+      0x6E => Some(Key::NumpadDecimal),
+      0x6F => Some(Key::NumpadDivide),
+      0x6A => Some(Key::NumpadMultiply),
+      0x6D => Some(Key::NumpadSubtract),
+      0x6B => Some(Key::NumpadAdd),
+      0x0D => Some(Key::NumpadEnter),
+      0x92 => Some(Key::PrintScreen),
+      0x13 => Some(Key::Pause),
 
-      _ => Key::Unknown,
+      _ => None,
     }
   }
 
   #[cfg(target_os = "linux")]
-  pub fn from_keycode(code: u16) -> Self {
+  pub fn from_keycode(code: u16) -> Option<Self> {
     match code {
       // Letters
-      38 => Key::A,
-      56 => Key::B,
-      54 => Key::C,
-      40 => Key::D,
-      26 => Key::E,
-      41 => Key::F,
-      42 => Key::G,
-      43 => Key::H,
-      31 => Key::I,
-      44 => Key::J,
-      45 => Key::K,
-      46 => Key::L,
-      58 => Key::M,
-      57 => Key::N,
-      32 => Key::O,
-      33 => Key::P,
-      24 => Key::Q,
-      27 => Key::R,
-      39 => Key::S,
-      28 => Key::T,
-      30 => Key::U,
-      55 => Key::V,
-      25 => Key::W,
-      53 => Key::X,
-      29 => Key::Y,
-      52 => Key::Z,
+      38 => Some(Key::A),
+      56 => Some(Key::B),
+      54 => Some(Key::C),
+      40 => Some(Key::D),
+      26 => Some(Key::E),
+      41 => Some(Key::F),
+      42 => Some(Key::G),
+      43 => Some(Key::H),
+      31 => Some(Key::I),
+      44 => Some(Key::J),
+      45 => Some(Key::K),
+      46 => Some(Key::L),
+      58 => Some(Key::M),
+      57 => Some(Key::N),
+      32 => Some(Key::O),
+      33 => Some(Key::P),
+      24 => Some(Key::Q),
+      27 => Some(Key::R),
+      39 => Some(Key::S),
+      28 => Some(Key::T),
+      30 => Some(Key::U),
+      55 => Some(Key::V),
+      25 => Some(Key::W),
+      53 => Some(Key::X),
+      29 => Some(Key::Y),
+      52 => Some(Key::Z),
 
       // Numbers (top row)
-      10 => Key::Num1,
-      11 => Key::Num2,
-      12 => Key::Num3,
-      13 => Key::Num4,
-      14 => Key::Num5,
-      15 => Key::Num6,
-      16 => Key::Num7,
-      17 => Key::Num8,
-      18 => Key::Num9,
-      19 => Key::Num0,
+      10 => Some(Key::Digit1),
+      11 => Some(Key::Digit2),
+      12 => Some(Key::Digit3),
+      13 => Some(Key::Digit4),
+      14 => Some(Key::Digit5),
+      15 => Some(Key::Digit6),
+      16 => Some(Key::Digit7),
+      17 => Some(Key::Digit8),
+      18 => Some(Key::Digit9),
+      19 => Some(Key::Digit0),
 
       // Special characters (US QWERTY positions)
-      34 => Key::LeftBracket,  // [
-      35 => Key::RightBracket, // ]
-      51 => Key::Backslash,    // '\'
-      49 => Key::GraveAccent,  // `
-      47 => Key::Semicolon,    // ;
-      48 => Key::Apostrophe,   // '
-      20 => Key::Minus,        // -
-      21 => Key::Equal,        // =
-      59 => Key::Comma,        // ,
-      60 => Key::Period,       // .
-      61 => Key::Slash,        // /
+      34 => Some(Key::LeftBracket),  // [
+      35 => Some(Key::RightBracket), // ]
+      51 => Some(Key::Backslash),    // \
+      49 => Some(Key::Backquote),    // `
+      47 => Some(Key::Semicolon),    // ;
+      48 => Some(Key::Quote),        // '
+      20 => Some(Key::Minus),        // -
+      21 => Some(Key::Equal),        // =
+      59 => Some(Key::Comma),        // ,
+      60 => Some(Key::Period),       // .
+      61 => Some(Key::Slash),        // /
 
       // Whitespace
-      65 => Key::Space,
-      36 => Key::Enter,
-      22 => Key::Backspace,
-      23 => Key::Tab,
-      9 => Key::Escape,
+      65 => Some(Key::Space),
+      36 => Some(Key::Enter),
+      22 => Some(Key::Backspace),
+      23 => Some(Key::Tab),
+      9 => Some(Key::Escape),
 
       // Navigation
-      113 => Key::Left,
-      114 => Key::Right,
-      111 => Key::Up,
-      116 => Key::Down,
-      110 => Key::Home,
-      115 => Key::End,
-      112 => Key::PageUp,
-      117 => Key::PageDown,
-      118 => Key::Insert,
-      119 => Key::Delete,
+      113 => Some(Key::ArrowLeft),
+      114 => Some(Key::ArrowRight),
+      111 => Some(Key::ArrowUp),
+      116 => Some(Key::ArrowDown),
+      110 => Some(Key::Home),
+      115 => Some(Key::End),
+      112 => Some(Key::PageUp),
+      117 => Some(Key::PageDown),
+      118 => Some(Key::Insert),
+      119 => Some(Key::Delete),
 
       // Modifiers
-      50 => Key::LeftShift,
-      62 => Key::RightShift,
-      37 => Key::LeftControl,
-      105 => Key::RightControl,
-      64 => Key::LeftAlt,
-      108 => Key::RightAlt,
-      133 => Key::LeftSuper,
-      134 => Key::RightSuper,
-      66 => Key::CapsLock,
+      50 => Some(Key::ShiftLeft),
+      62 => Some(Key::ShiftRight),
+      37 => Some(Key::ControlLeft),
+      105 => Some(Key::ControlRight),
+      64 => Some(Key::AltLeft),
+      108 => Some(Key::AltRight),
+      133 => Some(Key::SuperLeft),
+      134 => Some(Key::SuperRight),
+      66 => Some(Key::CapsLock),
 
       // Function keys
-      67 => Key::F1,
-      68 => Key::F2,
-      69 => Key::F3,
-      70 => Key::F4,
-      71 => Key::F5,
-      72 => Key::F6,
-      73 => Key::F7,
-      74 => Key::F8,
-      75 => Key::F9,
-      76 => Key::F10,
-      95 => Key::F11,
-      96 => Key::F12,
+      67 => Some(Key::F1),
+      68 => Some(Key::F2),
+      69 => Some(Key::F3),
+      70 => Some(Key::F4),
+      71 => Some(Key::F5),
+      72 => Some(Key::F6),
+      73 => Some(Key::F7),
+      74 => Some(Key::F8),
+      75 => Some(Key::F9),
+      76 => Some(Key::F10),
+      95 => Some(Key::F11),
+      96 => Some(Key::F12),
 
       // Lock keys & misc
-      78 => Key::ScrollLock,
-      77 => Key::NumLock,
-      107 => Key::PrintScreen,
-      127 => Key::Pause,
+      78 => Some(Key::ScrollLock),
+      77 => Some(Key::NumLock),
+      107 => Some(Key::PrintScreen),
+      127 => Some(Key::Pause),
 
       // Keypad
-      90 => Key::Kp0,
-      87 => Key::Kp1,
-      88 => Key::Kp2,
-      89 => Key::Kp3,
-      83 => Key::Kp4,
-      84 => Key::Kp5,
-      85 => Key::Kp6,
-      79 => Key::Kp7,
-      80 => Key::Kp8,
-      81 => Key::Kp9,
-      91 => Key::KpDecimal,
-      63 => Key::KpMultiply,
-      82 => Key::KpSubtract,
-      86 => Key::KpAdd,
-      104 => Key::KpEnter,
-      106 => Key::KpEqual,
+      90 => Some(Key::Numpad0),
+      87 => Some(Key::Numpad1),
+      88 => Some(Key::Numpad2),
+      89 => Some(Key::Numpad3),
+      83 => Some(Key::Numpad4),
+      84 => Some(Key::Numpad5),
+      85 => Some(Key::Numpad6),
+      79 => Some(Key::Numpad7),
+      80 => Some(Key::Numpad8),
+      81 => Some(Key::Numpad9),
+      91 => Some(Key::NumpadDecimal),
+      63 => Some(Key::NumpadMultiply),
+      82 => Some(Key::NumpadSubtract),
+      86 => Some(Key::NumpadAdd),
+      104 => Some(Key::NumpadEnter),
+      106 => Some(Key::NumpadEqual),
 
-      _ => Key::Unknown,
+      _ => None,
     }
   }
 }
@@ -540,17 +534,12 @@ impl InputEvent {
       command: modifier_flags.contains(NSEventModifierFlags::Command),
     };
 
-    let convert_coord = |location_in_window: objc2_core_foundation::CGPoint| -> (f64, f64) {
-      let location_in_view = webview.convertPoint_fromView(location_in_window, None);
-      (location_in_view.x, location_in_view.y)
-    };
-
     match event_type {
       NSEventType::KeyDown => {
         let key_code = unsafe { event.keyCode() };
 
         Some(InputEvent::KeyDown {
-          key: Key::from_keycode(key_code),
+          key: Key::from_keycode(key_code)?,
           modifiers,
         })
       }
@@ -558,57 +547,37 @@ impl InputEvent {
         let key_code = unsafe { event.keyCode() };
 
         Some(InputEvent::KeyUp {
-          key: Key::from_keycode(key_code),
+          key: Key::from_keycode(key_code)?,
           modifiers,
         })
       }
-      NSEventType::LeftMouseDown => {
-        let location_in_window = unsafe { event.locationInWindow() };
-        Some(InputEvent::MouseDown {
-          button: MouseButton::Left,
-          location: convert_coord(location_in_window),
-          modifiers,
-        })
-      }
-      NSEventType::LeftMouseUp => {
-        let location_in_window = unsafe { event.locationInWindow() };
-        Some(InputEvent::MouseUp {
-          button: MouseButton::Left,
-          location: convert_coord(location_in_window),
-          modifiers,
-        })
-      }
-      NSEventType::RightMouseDown => {
-        let location_in_window = unsafe { event.locationInWindow() };
-        Some(InputEvent::MouseDown {
-          button: MouseButton::Right,
-          location: convert_coord(location_in_window),
-          modifiers,
-        })
-      }
-      NSEventType::RightMouseUp => {
-        let location_in_window = unsafe { event.locationInWindow() };
-        Some(InputEvent::MouseUp {
-          button: MouseButton::Right,
-          location: convert_coord(location_in_window),
-          modifiers,
-        })
-      }
+      NSEventType::LeftMouseDown => Some(InputEvent::MouseDown {
+        button: MouseButton::Left,
+        modifiers,
+      }),
+      NSEventType::LeftMouseUp => Some(InputEvent::MouseUp {
+        button: MouseButton::Left,
+        modifiers,
+      }),
+      NSEventType::RightMouseDown => Some(InputEvent::MouseDown {
+        button: MouseButton::Right,
+        modifiers,
+      }),
+      NSEventType::RightMouseUp => Some(InputEvent::MouseUp {
+        button: MouseButton::Right,
+        modifiers,
+      }),
       NSEventType::OtherMouseDown => {
-        let location_in_window = unsafe { event.locationInWindow() };
-        let button_number = unsafe { event.buttonNumber() } as i16;
+        let button_number = unsafe { event.buttonNumber() } as u16;
         Some(InputEvent::MouseDown {
           button: MouseButton::Other(button_number),
-          location: convert_coord(location_in_window),
           modifiers,
         })
       }
       NSEventType::OtherMouseUp => {
-        let location_in_window = unsafe { event.locationInWindow() };
-        let button_number = unsafe { event.buttonNumber() } as i16;
+        let button_number = unsafe { event.buttonNumber() } as u16;
         Some(InputEvent::MouseUp {
           button: MouseButton::Other(button_number),
-          location: convert_coord(location_in_window),
           modifiers,
         })
       }
@@ -617,25 +586,27 @@ impl InputEvent {
       | NSEventType::RightMouseDragged
       | NSEventType::OtherMouseDragged => {
         let location_in_window = unsafe { event.locationInWindow() };
+        let location_in_view = webview.convertPoint_fromView(location_in_window, None);
         Some(InputEvent::MouseMoved {
-          location: convert_coord(location_in_window),
+          location_in_webview: dpi::LogicalPosition::new(location_in_view.x, location_in_view.y)
+            .into(),
+          location_in_parent: dpi::LogicalPosition::new(location_in_window.x, location_in_window.y)
+            .into(),
           modifiers,
         })
       }
       NSEventType::ScrollWheel => {
-        let location_in_window = unsafe { event.locationInWindow() };
         let delta_x = unsafe { event.scrollingDeltaX() };
         let delta_y = unsafe { event.scrollingDeltaY() };
         Some(InputEvent::ScrollWheel {
           delta_x,
           delta_y,
-          location: convert_coord(location_in_window),
           modifiers,
         })
       }
       NSEventType::FlagsChanged => {
         let key_code = unsafe { event.keyCode() };
-        let key = Key::from_keycode(key_code);
+        let key = Key::from_keycode(key_code)?;
 
         let is_pressed = match key_code {
           0x38 | 0x3C => modifiers.shift,   // Left/Right Shift
@@ -671,14 +642,14 @@ impl InputEvent {
       WM_KEYDOWN | WM_SYSKEYDOWN => {
         let key_code = wparam as u16;
         Some(InputEvent::KeyDown {
-          key: Key::from_keycode(key_code),
+          key: Key::from_keycode(key_code)?,
           modifiers,
         })
       }
       WM_KEYUP | WM_SYSKEYUP => {
         let key_code = wparam as u16;
         Some(InputEvent::KeyUp {
-          key: Key::from_keycode(key_code),
+          key: Key::from_keycode(key_code)?,
           modifiers,
         })
       }
@@ -784,11 +755,11 @@ impl InputEvent {
 
     match event.event_type() {
       gtk::gdk::EventType::KeyPress => Some(InputEvent::KeyDown {
-        key: Key::from_keycode(keyval),
+        key: Key::from_keycode(keyval)?,
         modifiers: key_modifiers,
       }),
       gtk::gdk::EventType::KeyRelease => Some(InputEvent::KeyUp {
-        key: Key::from_keycode(keyval),
+        key: Key::from_keycode(keyval)?,
         modifiers: key_modifiers,
       }),
       _ => None,
@@ -811,7 +782,7 @@ impl InputEvent {
       1 => MouseButton::Left,
       2 => MouseButton::Other(2), // Middle button
       3 => MouseButton::Right,
-      other => MouseButton::Other(other as i16),
+      other => MouseButton::Other(other as u16),
     };
 
     match event.event_type() {

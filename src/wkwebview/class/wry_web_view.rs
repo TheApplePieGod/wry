@@ -144,6 +144,13 @@ define_class!(
       });
     }
 
+    #[unsafe(method(mouseDragged:))]
+    fn mouse_dragged(&self, event: &NSEvent) {
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), mouseDragged: event]
+      });
+    }
+
     #[unsafe(method(rightMouseDown:))]
     fn right_mouse_down(&self, event: &NSEvent) {
       handle_input_event(self, event, || unsafe {
@@ -155,6 +162,13 @@ define_class!(
     fn right_mouse_up(&self, event: &NSEvent) {
       handle_input_event(self, event, || unsafe {
         objc2::msg_send![super(self), rightMouseUp: event]
+      });
+    }
+
+    #[unsafe(method(rightMouseDragged:))]
+    fn right_mouse_dragged(&self, event: &NSEvent) {
+      handle_input_event(self, event, || unsafe {
+        objc2::msg_send![super(self), rightMouseDragged: event]
       });
     }
 
