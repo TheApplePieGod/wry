@@ -586,11 +586,21 @@ impl InputEvent {
       | NSEventType::RightMouseDragged
       | NSEventType::OtherMouseDragged => {
         let location_in_window = unsafe { event.locationInWindow() };
+        let location_in_parent = unsafe {
+          // Window has inverted y coordinate so need to invert
+          let mtm = objc2::MainThreadMarker::new().unwrap();
+          let window = event.window(mtm).unwrap();
+          let frame = window.frame();
+          objc2_core_foundation::CGPoint {
+            x: location_in_window.x,
+            y: frame.size.height - location_in_window.y,
+          }
+        };
         let location_in_view = webview.convertPoint_fromView(location_in_window, None);
         Some(InputEvent::MouseMoved {
           location_in_webview: dpi::LogicalPosition::new(location_in_view.x, location_in_view.y)
             .into(),
-          location_in_parent: dpi::LogicalPosition::new(location_in_window.x, location_in_window.y)
+          location_in_parent: dpi::LogicalPosition::new(location_in_parent.x, location_in_parent.y)
             .into(),
           modifiers,
         })
