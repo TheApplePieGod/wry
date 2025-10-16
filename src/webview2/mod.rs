@@ -1374,6 +1374,7 @@ impl InnerWebView {
 
             if webview_has_focus {
               if let Some(window_event) = InputEvent::from_windows_message(
+                None, // Ignored for key events
                 wparam.0 as u32,
                 kb_struct.vkCode as usize,
                 0,
@@ -1421,7 +1422,14 @@ impl InnerWebView {
               let mut relative_point = POINT { x: mouse_struct.pt.x, y: mouse_struct.pt.y };
               let _ = ScreenToClient(target_hwnd, &mut relative_point);
 
+              let parent_pos = GetParent(target_hwnd).ok().map(|parent_hwnd| {
+                let mut parent_point = POINT { x: mouse_struct.pt.x, y: mouse_struct.pt.y };
+                let _ = ScreenToClient(parent_hwnd, &mut parent_point);
+                (parent_point.x as f64, parent_point.y as f64)
+              });
+
               if let Some(window_event) = InputEvent::from_windows_message(
+                parent_pos,
                 wparam.0 as u32,
                 0,
                 ((relative_point.y as isize) << 16) | (relative_point.x as isize & 0xFFFF),

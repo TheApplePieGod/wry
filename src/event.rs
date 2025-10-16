@@ -382,7 +382,7 @@ impl Key {
       0x6A => Some(Key::NumpadMultiply),
       0x6D => Some(Key::NumpadSubtract),
       0x6B => Some(Key::NumpadAdd),
-      0x0D => Some(Key::NumpadEnter),
+      //0x0D => Some(Key::NumpadEnter),
       0x92 => Some(Key::PrintScreen),
       0x13 => Some(Key::Pause),
 
@@ -638,7 +638,7 @@ impl InputEvent {
   }
 
   #[cfg(target_os = "windows")]
-  pub fn from_windows_message(msg: u32, wparam: usize, lparam: isize) -> Option<Self> {
+  pub fn from_windows_message(parent_pos: Option<(f64, f64)>, msg: u32, wparam: usize, lparam: isize) -> Option<Self> {
     use windows::Win32::UI::Input::KeyboardAndMouse::*;
 
     let modifiers = KeyModifiers {
@@ -664,86 +664,67 @@ impl InputEvent {
         })
       }
       WM_LBUTTONDOWN => {
-        let x = (lparam & 0xFFFF) as i16 as f64;
-        let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
         Some(InputEvent::MouseDown {
           button: MouseButton::Left,
-          location: (x, y),
           modifiers,
         })
       }
       WM_LBUTTONUP => {
-        let x = (lparam & 0xFFFF) as i16 as f64;
-        let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
         Some(InputEvent::MouseUp {
           button: MouseButton::Left,
-          location: (x, y),
           modifiers,
         })
       }
       WM_RBUTTONDOWN => {
-        let x = (lparam & 0xFFFF) as i16 as f64;
-        let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
         Some(InputEvent::MouseDown {
           button: MouseButton::Right,
-          location: (x, y),
           modifiers,
         })
       }
       WM_RBUTTONUP => {
-        let x = (lparam & 0xFFFF) as i16 as f64;
-        let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
         Some(InputEvent::MouseUp {
           button: MouseButton::Right,
-          location: (x, y),
           modifiers,
         })
       }
       WM_MBUTTONDOWN => {
-        let x = (lparam & 0xFFFF) as i16 as f64;
-        let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
         Some(InputEvent::MouseDown {
           button: MouseButton::Other(2), // Middle button
-          location: (x, y),
           modifiers,
         })
       }
       WM_MBUTTONUP => {
-        let x = (lparam & 0xFFFF) as i16 as f64;
-        let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
         Some(InputEvent::MouseUp {
           button: MouseButton::Other(2),
-          location: (x, y),
           modifiers,
         })
       }
       WM_MOUSEMOVE => {
         let x = (lparam & 0xFFFF) as i16 as f64;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
+        let parent_pos = match parent_pos {
+          Some(pos) => pos,
+          None => (x, y),
+        };
         Some(InputEvent::MouseMoved {
-          location: (x, y),
+          location_in_parent: dpi::LogicalPosition::new(parent_pos.0, parent_pos.1).into(),
+          location_in_webview: dpi::LogicalPosition::new(x, y).into(),
           modifiers,
         })
       }
       WM_MOUSEWHEEL => {
-        let x = (lparam & 0xFFFF) as i16 as f64;
-        let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
         let delta = ((wparam >> 16) & 0xFFFF) as i16 as f64 / 120.0; // WHEEL_DELTA is 120
         Some(InputEvent::ScrollWheel {
           delta_x: 0.0,
           delta_y: delta,
-          location: (x, y),
           modifiers,
         })
       }
       WM_MOUSEHWHEEL => {
-        let x = (lparam & 0xFFFF) as i16 as f64;
-        let y = ((lparam >> 16) & 0xFFFF) as i16 as f64;
         let delta = ((wparam >> 16) & 0xFFFF) as i16 as f64 / 120.0;
         Some(InputEvent::ScrollWheel {
           delta_x: delta,
           delta_y: 0.0,
-          location: (x, y),
           modifiers,
         })
       }
