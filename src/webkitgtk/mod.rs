@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
-#[cfg(feature = "x11")]
-use dpi::LogicalPosition;
-use dpi::LogicalSize;
+use dpi::{LogicalPosition, LogicalSize};
 use ffi::CookieManageExt;
 #[cfg(feature = "x11")]
 use gdkx11::{
@@ -286,6 +284,10 @@ impl InnerWebView {
 
     let webview = Self::create_webview(web_context, &attributes, &pl_attrs);
 
+    if let Some(bounds) = &attributes.bounds {
+      set_internal_pos_data(&webview, bounds.position.to_logical(webview.scale_factor() as f64));
+    }
+
     // Transparent
     if attributes.transparent {
       webview.set_background_color(&gtk::gdk::RGBA::new(0., 0., 0., 0.));
@@ -465,8 +467,9 @@ impl InnerWebView {
 
     // Mouse motion event handler
     let handler_motion = handler.clone();
-    webview.connect_motion_notify_event(move |_, event| {
-      if let Some(window_event) = InputEvent::from_gdk_event_motion(event) {
+    webview.connect_motion_notify_event(move |webview, event| {
+      let pos = get_internal_pos_data(webview);
+      if let Some(window_event) = InputEvent::from_gdk_event_motion(event, pos) {
         match handler_motion(window_event) {
           InputEventResponse::Block => gtk::glib::Propagation::Stop,
           InputEventResponse::Propagate => gtk::glib::Propagation::Proceed,
@@ -961,7 +964,10 @@ impl InnerWebView {
   pub fn set_bounds(&self, bounds: Rect) -> Result<()> {
     let scale_factor = self.webview.scale_factor() as f64;
     let (width, height) = bounds.size.to_logical::<i32>(scale_factor).into();
-    let (x, y) = bounds.position.to_logical::<i32>(scale_factor).into();
+    let logical_pos = bounds.position.to_logical::<i32>(scale_factor);
+    let (x, y) = logical_pos.into();
+
+    set_internal_pos_data(&self.webview, logical_pos.cast::<f64>());
 
     #[cfg(feature = "x11")]
     if let Some(x11_data) = &self.x11 {
@@ -1242,6 +1248,16 @@ impl InnerWebView {
 
     Ok(())
   }
+}
+
+fn set_internal_pos_data(webview: &WebView, pos: LogicalPosition<f64>) {
+  unsafe {
+    webview.set_data("pos", pos);
+  }
+}
+
+fn get_internal_pos_data(webview: &WebView) -> LogicalPosition<f64> {
+  unsafe { *webview.data::<LogicalPosition<f64>>("pos").unwrap().as_ref() }
 }
 
 pub fn platform_webview_version() -> Result<String> {

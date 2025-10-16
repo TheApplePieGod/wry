@@ -760,7 +760,6 @@ impl InputEvent {
   #[cfg(target_os = "linux")]
   pub fn from_gdk_event_button(event: &EventButton) -> Option<Self> {
     let modifiers = event.state();
-    let (x, y) = event.position();
 
     let key_modifiers = KeyModifiers {
       shift: modifiers.contains(ModifierType::SHIFT_MASK),
@@ -779,12 +778,10 @@ impl InputEvent {
     match event.event_type() {
       gtk::gdk::EventType::ButtonPress => Some(InputEvent::MouseDown {
         button,
-        location: (x, y),
         modifiers: key_modifiers,
       }),
       gtk::gdk::EventType::ButtonRelease => Some(InputEvent::MouseUp {
         button,
-        location: (x, y),
         modifiers: key_modifiers,
       }),
       _ => None,
@@ -792,7 +789,7 @@ impl InputEvent {
   }
 
   #[cfg(target_os = "linux")]
-  pub fn from_gdk_event_motion(event: &EventMotion) -> Option<Self> {
+  pub fn from_gdk_event_motion(event: &EventMotion, child_pos: dpi::LogicalPosition<f64>) -> Option<Self> {
     let modifiers = event.state();
     let (x, y) = event.position();
 
@@ -804,7 +801,8 @@ impl InputEvent {
     };
 
     Some(InputEvent::MouseMoved {
-      location: (x, y),
+      location_in_webview: dpi::LogicalPosition::new(x, y).into(),
+      location_in_parent: dpi::LogicalPosition::new(x + child_pos.x, y + child_pos.y).into(),
       modifiers: key_modifiers,
     })
   }
@@ -812,7 +810,6 @@ impl InputEvent {
   #[cfg(target_os = "linux")]
   pub fn from_gdk_event_scroll(event: &EventScroll) -> Option<Self> {
     let modifiers = event.state();
-    let (x, y) = event.position();
     let (delta_x, delta_y) = event.delta();
 
     let key_modifiers = KeyModifiers {
@@ -825,7 +822,6 @@ impl InputEvent {
     Some(InputEvent::ScrollWheel {
       delta_x,
       delta_y,
-      location: (x, y),
       modifiers: key_modifiers,
     })
   }
