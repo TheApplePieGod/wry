@@ -6,9 +6,9 @@
 use std::{cell::RefCell, ptr::null_mut, rc::Rc};
 
 use block2::Block;
-#[cfg(target_os = "macos")]
-use objc2::DefinedClass;
-use objc2::{define_class, msg_send, rc::Retained, runtime::NSObject, MainThreadOnly};
+use objc2::{
+  define_class, msg_send, rc::Retained, runtime::NSObject, DefinedClass, MainThreadOnly,
+};
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSModalResponse, NSModalResponseOK, NSOpenPanel, NSWindowDelegate};
 use objc2_foundation::{MainThreadMarker, NSObjectProtocol};
@@ -21,7 +21,7 @@ use objc2_web_kit::{
   WKFrameInfo, WKMediaCaptureType, WKPermissionDecision, WKSecurityOrigin, WKUIDelegate,
 };
 
-use crate::{NewWindowFeatures, NewWindowResponse, WryWebView};
+use crate::{NewWindowFeatures, NewWindowResponse, PermissionKind, PermissionResponse, WryWebView};
 
 #[cfg(target_os = "macos")]
 struct NewWindow {
@@ -54,7 +54,6 @@ struct WryNSWindowDelegateIvars {
 #[cfg(target_os = "macos")]
 define_class!(
   #[unsafe(super(NSObject))]
-  #[name = "WryNSWindowDelegate"]
   #[thread_kind = MainThreadOnly]
   #[ivars = WryNSWindowDelegateIvars]
   struct WryNSWindowDelegate;
@@ -82,15 +81,14 @@ impl WryNSWindowDelegate {
 
 pub struct WryWebViewUIDelegateIvars {
   #[cfg(target_os = "macos")]
-  new_window_req_handler:
-    Option<Box<dyn Fn(String, NewWindowFeatures) -> NewWindowResponse + Send + Sync>>,
+  new_window_req_handler: Option<Box<dyn Fn(String, NewWindowFeatures) -> NewWindowResponse>>,
   #[cfg(target_os = "macos")]
   new_windows: Rc<RefCell<Vec<NewWindow>>>,
+  permission_handler: Option<Box<dyn Fn(PermissionKind) -> PermissionResponse + Send + Sync>>,
 }
 
 define_class!(
   #[unsafe(super(NSObject))]
-  #[name = "WryWebViewUIDelegate"]
   #[thread_kind = MainThreadOnly]
   #[ivars = WryWebViewUIDelegateIvars]
   pub struct WryWebViewUIDelegate;
@@ -132,11 +130,39 @@ define_class!(
       _webview: &WryWebView,
       _origin: &WKSecurityOrigin,
       _frame: &WKFrameInfo,
-      _capture_type: WKMediaCaptureType,
+      capture_type: WKMediaCaptureType,
       decision_handler: &Block<dyn Fn(WKPermissionDecision)>,
     ) {
-      //https://developer.apple.com/documentation/webkit/wkpermissiondecision?language=objc
-      (*decision_handler).call((WKPermissionDecision::Grant,));
+      // Call user's permission handler if set
+      let decision = if let Some(handler) = &self.ivars().permission_handler {
+        let translate_response = |res: PermissionResponse| match res {
+          PermissionResponse::Allow => WKPermissionDecision::Grant,
+          PermissionResponse::Deny => WKPermissionDecision::Deny,
+          PermissionResponse::Default => WKPermissionDecision::Prompt,
+        };
+
+        match capture_type {
+          WKMediaCaptureType::Camera => translate_response(handler(PermissionKind::Camera)),
+          WKMediaCaptureType::Microphone => translate_response(handler(PermissionKind::Microphone)),
+          WKMediaCaptureType::CameraAndMicrophone => {
+            let mic_res = handler(PermissionKind::Microphone);
+            let cam_res = handler(PermissionKind::Camera);
+
+            match (mic_res, cam_res) {
+              (PermissionResponse::Allow, PermissionResponse::Allow) => WKPermissionDecision::Grant,
+              (PermissionResponse::Deny, _) | (_, PermissionResponse::Deny) => {
+                WKPermissionDecision::Deny
+              }
+              _ => WKPermissionDecision::Prompt,
+            }
+          }
+          _ => translate_response(handler(PermissionKind::Other)),
+        }
+      } else {
+        WKPermissionDecision::Grant
+      };
+
+      (*decision_handler).call((decision,));
     }
 
     #[cfg(target_os = "macos")]
@@ -236,7 +262,6 @@ define_class!(
             let delegate = WryNSWindowDelegate::new(
               mtm,
               Box::new(move || {
-                let new_windows = new_windows.clone();
                 new_windows
                   .borrow_mut()
                   .retain(|window| Retained::as_ptr(&window.ns_window) as usize != window_id);
@@ -268,9 +293,8 @@ define_class!(
 impl WryWebViewUIDelegate {
   pub fn new(
     mtm: MainThreadMarker,
-    new_window_req_handler: Option<
-      Box<dyn Fn(String, NewWindowFeatures) -> NewWindowResponse + Send + Sync>,
-    >,
+    new_window_req_handler: Option<Box<dyn Fn(String, NewWindowFeatures) -> NewWindowResponse>>,
+    permission_handler: Option<Box<dyn Fn(PermissionKind) -> PermissionResponse + Send + Sync>>,
   ) -> Retained<Self> {
     #[cfg(target_os = "ios")]
     let _new_window_req_handler = new_window_req_handler;
@@ -282,6 +306,7 @@ impl WryWebViewUIDelegate {
         new_window_req_handler,
         #[cfg(target_os = "macos")]
         new_windows: Rc::new(RefCell::new(vec![])),
+        permission_handler,
       });
     unsafe { msg_send![super(delegate), init] }
   }
